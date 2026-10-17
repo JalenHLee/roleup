@@ -40,6 +40,7 @@ def make_role(title: str) -> Role:
     ("Product Marketing Intern", "PMM"),
     ("Product Marketing Manager Intern", "PMM"),  # PMM rule comes before PM
     ("Product Solutions Intern", "Product (other)"),
+    ("Offering Management Intern", "PM"),
 ])
 def test_keeps_relevant_titles(title, expected):
     assert is_relevant(make_role(title)) == expected
@@ -63,6 +64,10 @@ def test_keeps_relevant_titles(title, expected):
     "Hardware Engineering Intern",
     "Machine Learning Intern",
     "Accounting Intern",
+    "ML Ops & Automation Intern",
+    "MLOps Intern",
+    "Options Strategy Intern",
+    "Store Operations Data Analyst Intern",
 ])
 def test_drops_irrelevant_titles(title):
     assert is_relevant(make_role(title)) is None

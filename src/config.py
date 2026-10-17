@@ -40,6 +40,10 @@ EXCLUDE_PATTERNS = [
     r"hardware",
     r"firmware",
     r"security",
+    r"\bml ?ops\b",  # ML infrastructure, not operations
+    r"\bmlops\b",
+    r"\boptions\b",  # options trading roles
+    r"\bstore operations\b",  # retail store roles
 ]
 
 # Unambiguous PM titles. These override EXCLUDE_PATTERNS, so
@@ -56,6 +60,7 @@ CATEGORY_RULES = [
     ("PMM", [r"product marketing"]),
     ("PM", [
         r"product manag",
+        r"offering manag",  # Honeywell-style name for PM
         r"\bapm\b",
         r"associate product",
         r"product owner",
