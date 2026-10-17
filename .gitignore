@@ -1,0 +1,17 @@
+# Secrets: never commit these (see CLAUDE.md rules)
+.env
+*.env
+credentials*.json
+service_account*.json
+token*.json
+
+# Personal files
+resume*
+*.pdf
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
