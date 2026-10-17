@@ -14,7 +14,7 @@ def make_role(title: str) -> Role:
         title=title,
         location="Remote",
         link="https://example.com/job",
-        source="test",
+        sources=["test"],
         date_posted=date(2026, 9, 1),
         term="Summer 2027",
     )

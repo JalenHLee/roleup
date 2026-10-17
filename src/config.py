@@ -82,3 +82,37 @@ CATEGORY_RULES = [
     # Catch-all for recall: anything else mentioning "product".
     ("Product (other)", [r"product"]),
 ]
+
+# --- Jobright -------------------------------------------------------------
+
+# Jobright's PM internship list. It only shows the last 7 days, so run daily.
+JOBRIGHT_README_URL = (
+    "https://raw.githubusercontent.com/jobright-ai/2026-Product-Management-Internship"
+    "/master/README.md"
+)
+
+# Jobright has no term column, so the term is inferred from the title.
+# A title matching any of these gets term="Summer 2027".
+JOBRIGHT_TARGET_TERM_PATTERNS = [r"summer 2027", r"2027 summer"]
+
+# Off-cycle titles are dropped, unless they also match a target pattern
+# (e.g. "Fall 2026/Spring- Summer 2027" is kept).
+JOBRIGHT_OFF_CYCLE_PATTERNS = [r"fall 2026", r"\bwinter\b", r"\bspring\b", r"\bco-?op\b"]
+
+# --- Dedupe (role_id normalization) ----------------------------------------
+# These are matched as whole words after lowercasing and replacing
+# punctuation with spaces, so write them without punctuation.
+
+# Term phrases removed from titles. Bare years (e.g. "2027") are also removed.
+ROLE_ID_TERM_PHRASES = ["summer 2027", "2027 summer", "2027 start"]
+
+ROLE_ID_INTERN_WORDS = ["internship", "intern"]
+
+# Country tokens some sources append to titles ("..., 2027 Summer U.S.").
+# Degree markers like "MBA" are deliberately NOT here: those are different roles.
+ROLE_ID_TITLE_NOISE = ["united states", "usa", "u s", "us"]
+
+ROLE_ID_COMPANY_SUFFIXES = ["inc", "llc", "ltd", "corp", "group"]
+
+# Normalized company name -> canonical name, applied after suffix removal.
+COMPANY_ALIASES = {"nissan motor corporation": "nissan"}

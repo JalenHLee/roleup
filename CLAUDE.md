@@ -7,7 +7,7 @@ Owner: Jalen (undergrad, graduating Dec 2028, recruiting for Summer 2027).
 Full PRD: see the "Roleup — PRD" doc (linked in README).
 
 ## Current phase
-**v1, Day 1 done** — skeleton, Simplify ingestion (listings JSON), role filter with categories. Next: Day 2 (Jobright ingestion, dedupe).
+**v1, Day 2 done** — Simplify + Jobright ingestion, role filter with categories, cross-source dedupe. Next: Day 3 (Gmail label + alert-email parser).
 (Update this section at the end of every session.)
 
 ## Stack
@@ -88,3 +88,8 @@ Then v1.1: fit score (disqualifiers first, full 0–100 range, evidence per scor
 | Filter returns a category via ordered keyword rules in config | Tune rules without touching logic; categories help the digest |
 | Keep Product Marketing roles (exact phrase only) | Product-adjacent, but generic marketing is out of scope |
 | Role carries `degrees` and Simplify's own category | `degrees` for eligibility (Day 4); category for the filter coverage check |
+| role_id excludes location | Same company + title is one application; location formats differ across sources |
+| Jobright term inferred from title; Fall 2026 / Winter / Spring / Co-op dropped unless Summer 2027 is also named | Jobright has no term column |
+| role_id strips term phrases, bare years, intern words, country tokens (US/USA); keeps MBA/degree markers | Sources decorate the same title differently; degree-restricted roles are separate applications |
+| Merged role keeps every distinct link (`links`); primary `link` = Simplify's, else first seen | Two postings can share company + title; one link would silently hide an application |
+| `COMPANY_ALIASES` in config for company names that differ across sources | One-line fix per mismatch, no logic change |
