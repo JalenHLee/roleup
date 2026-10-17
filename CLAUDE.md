@@ -7,7 +7,7 @@ Owner: Jalen (undergrad, graduating Dec 2028, recruiting for Summer 2027).
 Full PRD: see the "Roleup — PRD" doc (linked in README).
 
 ## Current phase
-**v1, Day 1** — repo setup + Simplify list ingestion.
+**v1, Day 1 done** — skeleton, Simplify ingestion (listings JSON), role filter with categories. Next: Day 2 (Jobright ingestion, dedupe).
 (Update this section at the end of every session.)
 
 ## Stack
@@ -38,7 +38,8 @@ Full PRD: see the "Roleup — PRD" doc (linked in README).
 `role_id` (normalized company + title + location), `company`, `title`, `location`, `link`, `sources` (comma list), `first_seen` (date), `eligibility_flag` (blank / MBA-only / grad-only / grad-date-conflict), `status` (New / Applied / Skip / Interviewing / Rejected / Offer), `fit_score` (v1.1), `notes`
 
 ## Role filter (keep)
-Product manager, APM, product intern, product analyst, product ops, growth, strategy, business operations, operations, strategy & operations — internships only. Expect fuzzy titles; prefer recall over precision in v1.
+Product manager, APM, product intern, product analyst, product ops, growth, strategy, business operations, operations, strategy & operations, product marketing (titles containing "Product Marketing" only; not generic marketing/brand/social) — internships only.
+The filter assigns a category: PM, PMM, Growth, Operations, Strategy, or Product (other). Keyword rules live in `src/config.py`. Expect fuzzy titles; prefer recall over precision in v1.
 
 ## Eligibility flags (hide from digest, keep in sheet)
 MBA-only; graduate/master's-only; graduation-date window that excludes Dec 2028.
@@ -46,6 +47,8 @@ MBA-only; graduate/master's-only; graduation-date window that excludes Dec 2028.
 ## Project layout (target)
 ```
 src/
+  config.py
+  models.py
   sources/simplify.py
   sources/jobright.py
   sources/gmail_alerts.py
@@ -80,3 +83,8 @@ Then v1.1: fit score (disqualifiers first, full 0–100 range, evidence per scor
 | Human submits every application | Avoid account bans; PM hiring rewards tailoring |
 | Google Sheet stays source of truth | It's already the tracker |
 | Fit score after v1 | Summer 2027 postings are live now; speed first |
+| Simplify via `.github/scripts/listings.json` on `dev`, no README fallback | Structured data beats parsing tables; if it moves, fail loudly |
+| `TARGET_TERMS` in config (Summer 2027 + N/A; N/A labeled "unknown") | Off-cycle terms are noise; one-line change for Summer 2028 |
+| Filter returns a category via ordered keyword rules in config | Tune rules without touching logic; categories help the digest |
+| Keep Product Marketing roles (exact phrase only) | Product-adjacent, but generic marketing is out of scope |
+| Role carries `degrees` and Simplify's own category | `degrees` for eligibility (Day 4); category for the filter coverage check |
