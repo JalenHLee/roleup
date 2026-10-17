@@ -44,13 +44,14 @@ def parse_listings(listings: list[dict]) -> tuple[list[Role], list[str]]:
                 title=listing["title"],
                 location="; ".join(listing.get("locations") or []),
                 link=listing["url"],
-                source="simplify",
+                sources=["simplify"],
                 date_posted=datetime.fromtimestamp(
                     listing["date_posted"], tz=timezone.utc
                 ).date(),
                 term=term,
                 degrees=list(listing.get("degrees") or []),
                 source_category=listing.get("category") or "",
+                links=[listing["url"]],
             ))
         except (KeyError, TypeError, ValueError, OSError) as e:
             msg = f"simplify listing #{i} (id={listing.get('id')}): {type(e).__name__}: {e}"

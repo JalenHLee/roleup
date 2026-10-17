@@ -30,7 +30,8 @@ def test_parses_basic_listing():
     assert role.company == "Acme Corp"
     assert role.title == "Product Manager Intern"
     assert role.link == "https://example.com/job/1"
-    assert role.source == "simplify"
+    assert role.sources == ["simplify"]
+    assert role.links == ["https://example.com/job/1"]
     assert role.date_posted == date(2026, 9, 1)
     assert role.term == "Summer 2027"
     assert role.degrees == ["Bachelor's"]
