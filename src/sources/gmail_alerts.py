@@ -13,7 +13,7 @@ import hashlib
 import imaplib
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from email import policy
 from email.utils import parseaddr, parsedate_to_datetime
@@ -41,6 +41,8 @@ class EmailResult:
     source: str | None  # e.g. "linkedin"; None for an unknown sender
     roles: int  # valid roles extracted (before the role filter)
     errors: int
+    # (before, after) titles where the company-suffix guard fired. Job titles only.
+    title_fixes: list[tuple[str, str]] = field(default_factory=list)
 
 
 def short_id(message_id: str) -> str:
@@ -141,13 +143,14 @@ def parse_emails(
         ref = f"email #{sid} from {domain}"
         source = source_for_domain(domain)
 
+        fixes: list[tuple[str, str]] = []
         if source is None:
             found, email_errors = [], ["unknown sender domain"]
         elif msg.get("date") is None:
             found, email_errors = [], ["missing or bad Date header"]
         else:
             try:
-                found, email_errors = extract_roles(msg["text"], source, msg["date"], llm)
+                found, email_errors, fixes = extract_roles(msg["text"], source, msg["date"], llm)
             except Exception as e:  # any LLM/API failure is reported for this email only
                 found, email_errors = [], [f"LLM call failed: {type(e).__name__}: {e}"]
 
@@ -155,7 +158,7 @@ def parse_emails(
         for err in email_errors:
             log.warning("Failed to parse %s: %s", ref, err)
             errors.append(f"{ref}: {err}")
-        report.append(EmailResult(domain, sid, source, len(found), len(email_errors)))
+        report.append(EmailResult(domain, sid, source, len(found), len(email_errors), fixes))
 
     return roles, errors, report
 

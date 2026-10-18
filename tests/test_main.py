@@ -96,7 +96,7 @@ def test_main_exit_code(monkeypatch, capsys, gmail, expected_code):
     # Everything is still printed, failure or not.
     assert "Acme | Product Manager Intern" in out
     assert "Globex | Product Manager Intern" in out
-    assert "Total after dedupe: 2" in out
+    assert "digest: 2 roles" in out
     if expected_code:
         assert "=== Source failures (1) ===" in out
         assert "  - gmail: error: b'[AUTHENTICATIONFAILED] Invalid credentials (Failure)'" in out

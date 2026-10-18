@@ -16,7 +16,8 @@ log = logging.getLogger(__name__)
 HEADER_PREFIX = "| Company | Job Title |"
 EXPECTED_COLUMNS = 5  # Company, Job Title, Location, Work Model, Date Posted
 SAME_COMPANY = "↳"
-LINK_RE = re.compile(r"^\[(.+?)\]\((\S+?)\)$")
+# Whitespace inside the parens is allowed: "[Fortune Brands](https://www.fbin.com )".
+LINK_RE = re.compile(r"^\[(.+?)\]\(\s*(\S+?)\s*\)$")
 
 
 def fetch_roles(today: date | None = None) -> tuple[list[Role], list[str]]:
@@ -32,9 +33,9 @@ def fetch_roles(today: date | None = None) -> tuple[list[Role], list[str]]:
 def parse_readme(text: str, today: date) -> tuple[list[Role], list[str]]:
     """Turn Jobright README text into Roles.
 
-    `today` anchors the year for dates like "Sep 23". Off-cycle titles
-    (Fall 2026, Winter, Spring, Co-op) are skipped. Malformed rows are logged
-    and returned as errors, never dropped silently.
+    `today` anchors the year for dates like "Sep 23". Off-cycle titles are kept
+    here and dropped later by the pipeline's term layer, so every drop is counted.
+    Malformed rows are logged and returned as errors, never dropped silently.
     Raises ValueError if the job table is not found.
     """
     lines = text.splitlines()
@@ -62,9 +63,7 @@ def parse_readme(text: str, today: date) -> tuple[list[Role], list[str]]:
                 company = _link_text(company_cell)
 
             title, link = _parse_title(title_cell)
-            term = infer_term(title)
-            if term is None:
-                continue  # off-cycle internship
+            term = infer_term(title)  # off-cycle titles are dropped later, by the term layer
 
             roles.append(Role(
                 company=company,

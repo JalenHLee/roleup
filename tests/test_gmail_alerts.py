@@ -235,3 +235,45 @@ def test_real_apis_are_blocked_in_tests(fake_env):
     # Sanity check on conftest: the default IMAP class is the blocked stub.
     with pytest.raises(AssertionError, match="must not call"):
         fetch_emails()
+
+
+# --- Q2 case: company on its own line and in "Company · Location" -------------
+
+Q2_RAW = (FIXTURES / "linkedin_q2_alert.eml").read_bytes()
+Q2_TITLE = "2027 Summer Internship - Product Operations"
+
+
+def test_q2_email_text_has_title_company_and_location_lines():
+    text = parse_message(Q2_RAW)["text"].splitlines()
+    i = next(n for n, line in enumerate(text) if line.startswith(Q2_TITLE))
+    assert text[i + 1] == "Q2"
+    assert text[i + 2] == "Q2 · Austin, Texas, United States"
+
+
+def test_q2_expected_structure_validates():
+    llm = canned_llm({"3333333333": {"roles": [
+        {"company": "Q2", "title": Q2_TITLE, "location": "Austin, Texas, United States",
+         "link_id": "L1"}]}})
+    [role], errors, [result] = parse_emails([parse_message(Q2_RAW)], llm)
+    assert errors == [] and result.title_fixes == []
+    assert (role.company, role.title, role.location) == ("Q2", Q2_TITLE, "Austin, Texas, United States")
+    assert role.link == "https://www.linkedin.com/jobs/view/3333333333/"
+    assert role.term == "Summer 2027"
+
+
+def test_q2_company_appended_to_title_is_stripped_and_counted():
+    llm = canned_llm({"3333333333": {"roles": [
+        {"company": "Q2", "title": Q2_TITLE + " Q2", "location": "Austin, Texas, United States",
+         "link_id": "L1"}]}})
+    [role], errors, [result] = parse_emails([parse_message(Q2_RAW)], llm)
+    assert errors == [] and role.title == Q2_TITLE
+    assert result.title_fixes == [(Q2_TITLE + " Q2", Q2_TITLE)]
+
+
+def test_prompt_tells_llm_not_to_append_company():
+    llm = canned_llm({})
+    llm_prompts = []
+    parse_emails([parse_message(Q2_RAW)], lambda p: llm_prompts.append(p) or llm(p))
+    [prompt] = llm_prompts
+    assert '"Company · Location"' in prompt
+    assert "never add the company name to the title" in prompt

@@ -7,7 +7,7 @@ Owner: Jalen (undergrad, graduating Dec 2028, recruiting for Summer 2027).
 Full PRD: see the "Roleup — PRD" doc (linked in README).
 
 ## Current phase
-**v1, Day 3b code done** — all four sources wired up, link IDs + link canonicalization, public-safe output, per-email report, manual `roleup` workflow. Sources now fail independently (first live run hit an IMAP auth failure that blocked the others). Pending: fix the Gmail app-password secret, re-run, then tune the prompt from the per-email report. Next: Day 4 (Google Sheet sync + eligibility flags).
+**v1, Day 3 done + quality pass** — four sources, link IDs + canonical links, source failure isolation, and a layered pipeline (`src/pipeline.py`: term → filter → dedupe → location → eligibility) with per-layer counts. Eligibility flags are built (grad-only). Pending: verify the LinkedIn prompt guidance (company/title split) on the next live run. Next: Day 4 (Google Sheet sync).
 (Update this section at the end of every session.)
 
 ## Stack
@@ -35,7 +35,7 @@ Full PRD: see the "Roleup — PRD" doc (linked in README).
 - A failed parse is logged and reported, never silently dropped.
 
 ## Data model (one row per role)
-`role_id` (normalized company + title + location), `company`, `title`, `location`, `link`, `sources` (comma list), `first_seen` (date), `eligibility_flag` (blank / MBA-only / grad-only / grad-date-conflict), `status` (New / Applied / Skip / Interviewing / Rejected / Offer), `fit_score` (v1.1), `notes`
+`role_id` (normalized company + title + location), `company`, `title`, `location`, `link`, `sources` (comma list), `first_seen` (date), `eligibility_flag` (blank / grad-only today; MBA-only / grad-date-conflict reserved), `status` (New / Applied / Skip / Interviewing / Rejected / Offer), `fit_score` (v1.1), `notes`
 
 ## Role filter (keep)
 Product manager, APM, product intern, product analyst, product ops, growth, strategy, business operations, operations, strategy & operations, product marketing (titles containing "Product Marketing" only; not generic marketing/brand/social) — internships only.
@@ -57,7 +57,9 @@ src/
   terms.py
   filter.py
   dedupe.py
+  location.py
   eligibility.py
+  pipeline.py
   sheet.py
   digest.py
   main.py
@@ -92,11 +94,11 @@ Then v1.1: fit score (disqualifiers first, full 0–100 range, evidence per scor
 | Keep Product Marketing roles (exact phrase only) | Product-adjacent, but generic marketing is out of scope |
 | Role carries `degrees` and Simplify's own category | `degrees` for eligibility (Day 4); category for the filter coverage check |
 | role_id excludes location | Same company + title is one application; location formats differ across sources |
-| Jobright term inferred from title; Fall 2026 / Winter / Spring / Co-op dropped unless Summer 2027 is also named | Jobright has no term column |
+| Jobright and alert-email terms are inferred from the title ("Summer 2027" or "unknown"); off-cycle titles are dropped later by the pipeline's term layer (see the off-cycle row below) | These sources have no term field |
 | role_id strips term phrases, bare years, intern words, country tokens (US/USA); keeps MBA/degree markers | Sources decorate the same title differently; degree-restricted roles are separate applications |
 | Merged role keeps every distinct link (`links`); primary `link` = Simplify's, else first seen | Two postings can share company + title; one link would silently hide an application |
 | `COMPANY_ALIASES` in config for company names that differ across sources | One-line fix per mismatch, no logic change |
-| LLM (Claude, `LLM_MODEL` in config) parses alert emails; code validates every item | Alert layouts vary and change; validation (required fields, http link, link must appear verbatim in the email) catches bad or hallucinated output |
+| LLM (Claude, `LLM_MODEL` in config) parses alert emails; code validates every item | Alert layouts vary and change; validation (required fields, `link_id` must map to a link the code numbered; see the Link IDs row) catches bad or hallucinated output |
 | Gmail via IMAP + app password, not the Gmail API | No OAuth consent screen or token refresh for a single-user bot |
 | Stateless 2-day email lookback (`EMAIL_LOOKBACK_DAYS`) | No "last seen" state to store; dedupe absorbs re-read emails, and one missed night is covered |
 | Lenny's Jobs cut from v1 | Alerts are paid, and few of its postings are internships |
@@ -109,3 +111,10 @@ Then v1.1: fit score (disqualifiers first, full 0–100 range, evidence per scor
 | `main.py` prints roles only via `format_role` (category, company, title, location, sources, canonical links) | One choke point for what reaches public logs, covered by a test |
 | Workflow is `workflow_dispatch` only until Day 5; secrets go to the main step only | Watch the first live runs by hand before scheduling; tests never see secrets |
 | Each source runs in its own try/except; a failure is printed under "Source failures" (type + message, secrets masked) and the run exits 1 after printing everything | One broken source shouldn't block the digest; the Actions run still shows red so the failure isn't missed |
+| Pipeline layers in `src/pipeline.py`: term → filter → dedupe → location → eligibility, each counted in the summary | One place to see what each rule removes; adapters no longer drop off-cycle roles themselves |
+| Off-cycle term check for all sources: STRONG patterns (Fall 2026, Spring 2027, Winter, off-cycle, 2026 start) drop unless the title says Summer 2027; WEAK (co-op, part-time) drop only when the term is unknown | Sources mis-tag terms; but "Intern/Co-op" tagged Summer 2027 is usually a real summer role |
+| `CATEGORY_EXCLUDES` per category; an excluded title falls through to later rules | "Systematic Strategy" isn't Strategy, but "Product Strategy … Trading" can still be PM |
+| US-only location rule: drop only if ALL locations are clearly non-US; unclear (Remote, SF, blank) is kept; runs after dedupe | Prefer recall; a merged role keeps every source's locations |
+| Eligibility: flag, don't delete. `grad-only` from title (MBA, Master's, Grad Intern, PhD) or Simplify degrees without Bachelor's; flagged roles stay in the data, hidden from the digest | The sheet keeps the full picture; the digest stays actionable |
+| role_id strips a trailing " - City, ST" / " - City, State" only for real US states, and a trailing " - X" whose words all appear earlier in the title; adds `holdings` suffix, `multiple teams` noise | Same posting decorated differently; "- Payments, Risk" isn't a location, "- Payments" adds a new word |
+| Company-suffix guard strips a company name the LLM appends to a title; fires are counted in the summary | Deterministic backstop for the prompt rule; the count shows if the prompt works |

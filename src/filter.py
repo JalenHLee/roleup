@@ -6,6 +6,7 @@ v1 prefers recall over precision. Keyword rules live in src/config.py.
 import re
 
 from src.config import (
+    CATEGORY_EXCLUDES,
     CATEGORY_RULES,
     EXCLUDE_PATTERNS,
     NON_INTERN_PATTERNS,
@@ -30,8 +31,9 @@ def is_relevant(role: Role) -> str | None:
     if _matches(title, EXCLUDE_PATTERNS) and not _matches(title, STRONG_PM_PATTERNS):
         return None
 
-    # 3. First matching category wins.
+    # 3. First matching category wins, unless that category excludes the title
+    #    (e.g. "Systematic Strategy" is not Strategy); then later rules get a chance.
     for category, patterns in CATEGORY_RULES:
-        if _matches(title, patterns):
+        if _matches(title, patterns) and not _matches(title, CATEGORY_EXCLUDES.get(category, [])):
             return category
     return None

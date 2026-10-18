@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from src.dedupe import dedupe, make_role_id, normalize_company, normalize_title
+from src.dedupe import dedupe, make_role_id, normalize_company, normalize_title, strip_redundant_suffix, strip_title_location
 from src.models import Role
 
 
@@ -123,3 +123,73 @@ def test_links_differing_only_by_tracking_merge_into_one():
     ])
     assert merged.links == ["https://www.linkedin.com/jobs/view/42/"]
     assert merged.link == "https://www.linkedin.com/jobs/view/42/"
+
+
+# --- quality-pass normalization -------------------------------------------------
+
+def test_holdings_suffix_merges():
+    roles = dedupe([make_role(company="Blackhawk Network", source="simplify"),
+                    make_role(company="Blackhawk Network Holdings", source="jobright")])
+    assert len(roles) == 1 and roles[0].sources == ["simplify", "jobright"]
+
+
+def test_white_cap_canada_alias():
+    assert normalize_company("White Cap Canada") == normalize_company("White Cap")
+
+
+def test_multiple_teams_noise_merges():
+    roles = dedupe([
+        make_role(company="Coinbase", title="Associate Product Manager Intern - Multiple Teams"),
+        make_role(company="Coinbase", title="Associate Product Manager Intern", source="jobright"),
+    ])
+    assert len(roles) == 1
+
+
+def test_trailing_title_location_merges():
+    roles = dedupe([
+        make_role(company="Nissan", title="Cross Car Line Feature Strategy Intern"),
+        make_role(company="Nissan Motor Corporation", source="jobright",
+                  title="Cross Car Line Feature Strategy Intern - Summer 2027 - Franklin, TN"),
+    ])
+    assert len(roles) == 1
+
+
+@pytest.mark.parametrize("title, expected", [
+    ("Product Intern - Franklin, TN", "Product Intern"),
+    ("Product Intern – Austin, Texas", "Product Intern"),
+    ("Product Intern - Payments, Risk", "Product Intern - Payments, Risk"),  # not a US state
+    ("Product Intern - New York, NY", "Product Intern"),
+])
+def test_strip_title_location(title, expected):
+    assert strip_title_location(title) == expected
+
+
+def test_mba_variant_still_does_not_merge():
+    roles = dedupe([
+        make_role(company="Acme", title="MBA Product Manager Intern - Multiple Teams"),
+        make_role(company="Acme", title="Product Manager Intern - Multiple Teams"),
+        make_role(company="Acme Holdings", title="Product Manager Intern (MBA) - Austin, TX"),
+    ])
+    # The non-MBA role merges with nothing; MBA roles never join it.
+    [non_mba] = [r for r in roles if "MBA" not in r.title]
+    assert non_mba.role_id == "acme|product manager"
+    assert all("mba" in r.role_id for r in roles if r is not non_mba)
+
+
+def test_redundant_suffix_merges_q2_titles():
+    roles = dedupe([
+        make_role(company="Q2", title="Product Operations Intern - Product Operations"),
+        make_role(company="Q2", title="2027 Summer Internship - Product Operations", source="jobright"),
+    ])
+    assert len(roles) == 1 and roles[0].sources == ["simplify", "jobright"]
+
+
+@pytest.mark.parametrize("title, expected", [
+    ("Product Operations Intern - Product Operations", "Product Operations Intern"),
+    ("Product Intern – product", "Product Intern"),  # en dash, case-insensitive
+    ("Product Intern - Payments", "Product Intern - Payments"),  # new word: kept
+    ("2027 Summer Internship - Product Operations", "2027 Summer Internship - Product Operations"),
+    ("Product Intern", "Product Intern"),
+])
+def test_strip_redundant_suffix(title, expected):
+    assert strip_redundant_suffix(title) == expected

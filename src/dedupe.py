@@ -13,12 +13,18 @@ from src.config import (
     ROLE_ID_INTERN_WORDS,
     ROLE_ID_TERM_PHRASES,
     ROLE_ID_TITLE_NOISE,
+    US_STATES,
 )
 from src.links import canonicalize
 from src.models import Role
 
 PREFERRED_LINK_SOURCE = "simplify"  # Jobright links go through jobright.ai
 LOCATION_SEP = "; "
+# A trailing " - City, ST" / " - City, State" (hyphen or en/em dash) on a title.
+TITLE_LOCATION_SUFFIX_RE = re.compile(r"\s+[-–—]\s+[^-–—,]+,\s*([A-Za-z .]+?)\s*$")
+_STATE_NAMES = {name.lower() for name in US_STATES.values()}
+# A trailing " - X" suffix (hyphen or en/em dash), X without further dashes.
+TITLE_DASH_SUFFIX_RE = re.compile(r"\s+[-–—]\s+([^-–—]+?)\s*$")
 
 
 def _remove_words(text: str, phrases: list[str]) -> str:
@@ -41,8 +47,35 @@ def normalize_company(company: str) -> str:
     return COMPANY_ALIASES.get(name, name)
 
 
+def strip_title_location(title: str) -> str:
+    """Drop a trailing " - Franklin, TN" style suffix, only for a real US state.
+
+    So "Product Intern - Payments, Risk" is left alone.
+    """
+    m = TITLE_LOCATION_SUFFIX_RE.search(title)
+    if m and (m.group(1).upper() in US_STATES or m.group(1).lower() in _STATE_NAMES):
+        return title[:m.start()]
+    return title
+
+
+def strip_redundant_suffix(title: str) -> str:
+    """Drop a trailing " - X" when every word of X already appears earlier in the title.
+
+    "Product Operations Intern - Product Operations" -> "Product Operations Intern";
+    "Product Intern - Payments" is left alone.
+    """
+    m = TITLE_DASH_SUFFIX_RE.search(title)
+    if not m:
+        return title
+    head = title[:m.start()]
+    suffix_words = set(_clean(m.group(1)).split())
+    if suffix_words and suffix_words <= set(_clean(head).split()):
+        return head
+    return title
+
+
 def normalize_title(title: str) -> str:
-    text = _clean(title)
+    text = _clean(strip_redundant_suffix(strip_title_location(title)))
     text = _remove_words(text, ROLE_ID_TERM_PHRASES)
     text = re.sub(r"\b20\d\d\b", " ", text)  # bare years, e.g. "Intern 2027"
     text = _remove_words(text, ROLE_ID_INTERN_WORDS)

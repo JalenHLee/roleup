@@ -1,0 +1,17 @@
+From: LinkedIn Job Alerts <jobalerts-noreply@linkedin.com>
+To: Test Student <student@example.com>
+Subject: "product operations": 1 new job
+Date: Mon, 19 Oct 2026 14:05:00 +0000
+Message-ID: <fake-linkedin-q2-001@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+
+<html><body>
+<h1>Your job alert for product operations</h1>
+<table>
+  <tr><td><a href="https://www.linkedin.com/comm/jobs/view/3333333333/?trackingId=fakeTrack%3D%3D&amp;refId=fakeRef&amp;trk=eml-email_job_alert">2027 Summer Internship - Product Operations</a></td></tr>
+  <tr><td>Q2</td></tr>
+  <tr><td>Q2 · Austin, Texas, United States</td></tr>
+</table>
+<p><a href="https://www.linkedin.com/comm/jobs/alerts?midToken=fake">Manage alerts</a></p>
+</body></html>
