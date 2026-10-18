@@ -4,10 +4,10 @@
 Roleup is a nightly bot that merges product and product-adjacent internship postings from four sources into one Google Sheet, removes duplicates, hides roles already applied to, and emails a morning digest. Applying stays manual: this bot never submits applications.
 
 Owner: Jalen (undergrad, graduating Dec 2028, recruiting for Summer 2027).
-Full PRD: see the "Roleup — PRD" doc (linked in README).
+Full PRD: see the "Roleup — PRD" doc (to be added as `docs/PRD.md`).
 
 ## Current phase
-**v1 live; fixes from the first real digest** — the first Evening digest re-listed 3 roles already in the sheet because the alert-email AI's text varied between runs. Fixed: identity by canonical link (plus role_ids recomputed from existing rows), company sanity checks before validation, location parentheticals stripped from role_id titles. The Roleup tab is now written by header name, so the user owns its layout; a fresh tab gets the new column order with six columns hidden. Pending: confirm on the next runs that "already in Roleup (by link)" absorbs the repeats and "Company sanity fixes" fires on bad AI companies; make sure the user's own Status dropdown includes New and Hidden. Next: v1.1 (fit score).
+**v1 live; fixes from the first real digest** — the first Evening digest re-listed 3 roles already in the sheet because the alert-email AI's text varied between runs. Fixed: identity by canonical link (plus role_ids recomputed from existing rows), company sanity checks before validation, location parentheticals stripped from role_id titles. The Roleup tab is now written by header name, so the user owns its layout; a fresh tab gets the new column order with six columns hidden. Pending: confirm on the next runs that "already in Roleup (by link)" absorbs the repeats and "Company sanity fixes" fires on bad AI companies; make sure the user's own Status dropdown includes New and Hidden. Portfolio README + MIT LICENSE added; pending: redacted screenshots at `docs/images/digest-email.png` and `docs/images/roleup-sheet.png`, and `docs/PRD.md`. Next: v1.1 (fit score).
 (Update this section at the end of every session.)
 
 ## Stack
@@ -141,3 +141,4 @@ Then v1.1: fit score (disqualifiers first, full 0–100 range, evidence per scor
 | role_id strips a trailing "(...)" that lists locations (US state code/name or "; "), unless it has a degree marker | Same posting with its location list rewritten ("(New York, NY; Boston, MA)" vs "(New York; New Jersey; Boston)"); "(Payments)" and "(MBA)" stay |
 | Write by header name: appended rows follow the Roleup tab's own row-1 order; unknown user columns stay blank; required headers (Status, Company, Title, Link, Role ID) missing → fail before any write | The user owns the layout (reorder, hide, add columns) |
 | An existing Roleup tab is never restyled: no header, validation, or formatting change; only a fresh tab gets the layout (new column order, Status dropdown, frozen header, last six columns hidden) | The user's own dropdown and formatting survive; the bot only writes Status New / Hidden |
+| README written for recruiters/PMs first (pitch, numbers, decisions), engineers second (architecture, AI safeguards, setup in a collapsible block); headline numbers dated to one measured run; MIT license | Portfolio readers skim for 30 seconds; dated numbers stay honest as the data changes |
