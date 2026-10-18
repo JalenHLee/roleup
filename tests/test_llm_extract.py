@@ -7,18 +7,20 @@ import anthropic
 import httpx2
 import pytest
 
-from src.llm_extract import build_prompt, extract_roles
+from src.llm_extract import build_prompt, extract_roles, number_links
 from src.llm_extract import call_claude as real_call_claude  # captured before conftest stubs it
 
 EMAIL_DATE = date(2026, 10, 16)
-EMAIL_TEXT = """\
+ACME_RAW = "https://www.linkedin.com/comm/jobs/view/1111111111/?trackingId=abc%3D%3D&refId=x&trk=eml"
+EMAIL_TEXT = f"""\
 Your job alert
-Product Manager Intern (Summer 2027) (https://jobs.example.com/acme/1)
+Product Manager Intern (Summer 2027) ({ACME_RAW})
 Acme Robotics, New York, NY
-Growth Intern (https://jobs.example.com/globex/2)
+Growth Intern (https://jobs.example.com/globex/2?utm_source=alert)
 Globex, Remote
 Product Intern - Spring 2027 (https://jobs.example.com/initech/3)
 Initech, Austin, TX
+Manage alerts (https://www.linkedin.com/comm/jobs/alerts?midToken=secret).
 """
 
 
@@ -32,30 +34,96 @@ def fake_llm(response):
 
 
 def role(company="Acme Robotics", title="Product Manager Intern (Summer 2027)",
-         location="New York, NY", link="https://jobs.example.com/acme/1"):
-    return {"company": company, "title": title, "location": location, "link": link}
+         location="New York, NY", link_id="L1"):
+    return {"company": company, "title": title, "location": location, "link_id": link_id}
+
+
+GLOBEX = role("Globex", "Growth Intern", "Remote", "L2")
 
 
 def run(response, text=EMAIL_TEXT):
     return extract_roles(text, "linkedin", EMAIL_DATE, fake_llm(response))
 
 
-def test_valid_extraction():
-    roles, errors = run({"roles": [
-        role(),
-        role("Globex", "Growth Intern", "Remote", "https://jobs.example.com/globex/2"),
-    ]})
+# --- number_links -------------------------------------------------------------
+
+def test_number_links_in_order_with_markers():
+    marked, links = number_links(EMAIL_TEXT)
+    assert links == {
+        "L1": ACME_RAW,
+        "L2": "https://jobs.example.com/globex/2?utm_source=alert",
+        "L3": "https://jobs.example.com/initech/3",
+        "L4": "https://www.linkedin.com/comm/jobs/alerts?midToken=secret",  # trailing "." trimmed
+    }
+    assert "Product Manager Intern (Summer 2027) ([L1])" in marked
+    assert "Manage alerts ([L4])." in marked
+    assert "http" not in marked
+
+
+def test_number_links_reuses_id_for_repeated_url():
+    marked, links = number_links("a https://x.example.com/1 b https://x.example.com/1, c")
+    assert links == {"L1": "https://x.example.com/1"}
+    assert marked == "a [L1] b [L1], c"
+
+
+def test_number_links_no_links():
+    assert number_links("no links here") == ("no links here", {})
+
+
+def test_prompt_has_numbered_canonical_links_and_marked_email():
+    llm = fake_llm({"roles": []})
+    extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, llm)
+    [prompt] = llm.prompts
+    assert "L1: https://www.linkedin.com/jobs/view/1111111111/" in prompt
+    assert "L2: https://jobs.example.com/globex/2\n" in prompt
+    assert "Product Manager Intern (Summer 2027) ([L1])" in prompt
+    # No raw tracking tokens are sent to the API.
+    for token in ("trackingId", "refId", "trk=", "midToken", "utm_source"):
+        assert token not in prompt
+    assert '"link_id": "L1"' in prompt
+    assert prompt == build_prompt(*number_links(EMAIL_TEXT))
+
+
+# --- extract_roles --------------------------------------------------------------
+
+def test_valid_link_ids_map_to_canonical_links():
+    roles, errors = run({"roles": [role(), GLOBEX]})
     assert errors == []
     acme, globex = roles
     assert acme.company == "Acme Robotics"
     assert acme.title == "Product Manager Intern (Summer 2027)"
     assert acme.location == "New York, NY"
-    assert acme.link == "https://jobs.example.com/acme/1"
+    assert acme.link == "https://www.linkedin.com/jobs/view/1111111111/"
     assert acme.links == [acme.link]
     assert acme.sources == ["linkedin"]
     assert acme.date_posted == EMAIL_DATE  # alerts carry no post date
     assert acme.term == "Summer 2027"
+    assert globex.link == "https://jobs.example.com/globex/2"
     assert globex.term == "unknown"
+
+
+def test_link_id_tolerates_case_and_spaces():
+    roles, errors = run({"roles": [role(link_id=" l1 ")]})
+    assert errors == [] and roles[0].link == "https://www.linkedin.com/jobs/view/1111111111/"
+
+
+def test_unknown_link_id_is_error_and_others_kept():
+    roles, errors = run({"roles": [role(link_id="L99"), GLOBEX]})
+    assert [r.company for r in roles] == ["Globex"]
+    assert errors == ["role #0 (Product Manager Intern (Summer 2027)): unknown link_id 'L99'"]
+
+
+def test_url_instead_of_link_id_is_error():
+    roles, errors = run({"roles": [role(link_id="https://jobs.example.com/made-up")]})
+    assert roles == [] and len(errors) == 1 and "unknown link_id" in errors[0]
+    assert "made-up" not in errors[0]  # only a short prefix is echoed
+
+
+def test_missing_link_id_is_error():
+    bad = role()
+    del bad["link_id"]
+    roles, errors = run({"roles": [bad]})
+    assert roles == [] and len(errors) == 1 and "missing link_id" in errors[0]
 
 
 def test_empty_roles_list_is_fine():
@@ -65,8 +133,7 @@ def test_empty_roles_list_is_fine():
 def test_missing_title_is_error_and_others_kept():
     bad = role()
     del bad["title"]
-    roles, errors = run({"roles": [bad, role("Globex", "Growth Intern", "Remote",
-                                             "https://jobs.example.com/globex/2")]})
+    roles, errors = run({"roles": [bad, GLOBEX]})
     assert [r.company for r in roles] == ["Globex"]
     assert len(errors) == 1 and "missing title" in errors[0]
 
@@ -82,26 +149,6 @@ def test_missing_location_key_is_error_but_empty_location_ok():
     roles, errors = run({"roles": [no_loc, role(location="")]})
     assert len(roles) == 1 and roles[0].location == ""
     assert len(errors) == 1 and "missing location" in errors[0]
-
-
-def test_bad_link_is_error():
-    text = EMAIL_TEXT + "www.example.com/x javascript:alert(1)\n"
-    roles, errors = run({"roles": [
-        role(link="www.example.com/x"),
-        role(link="javascript:alert(1)"),
-    ]}, text=text)
-    assert roles == []
-    assert len(errors) == 2 and all("not http" in e for e in errors)
-
-
-def test_link_not_in_email_is_error_and_others_kept():
-    roles, errors = run({"roles": [
-        role(link="https://jobs.example.com/acme/999"),  # hallucinated
-        role("Globex", "Growth Intern", "Remote", "https://jobs.example.com/globex/2"),
-    ]})
-    assert [r.company for r in roles] == ["Globex"]
-    assert len(errors) == 1 and "link not found in email" in errors[0]
-    assert "acme/999" not in errors[0]  # links are not echoed into logs
 
 
 def test_non_json_response_is_one_error():
@@ -127,18 +174,8 @@ def test_fenced_json_is_accepted():
 
 
 def test_off_cycle_title_dropped_not_error():
-    roles, errors = run({"roles": [role("Initech", "Product Intern - Spring 2027", "Austin, TX",
-                                        "https://jobs.example.com/initech/3")]})
+    roles, errors = run({"roles": [role("Initech", "Product Intern - Spring 2027", "Austin, TX", "L3")]})
     assert roles == [] and errors == []
-
-
-def test_prompt_wraps_email_and_asks_for_json():
-    llm = fake_llm({"roles": []})
-    extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, llm)
-    [prompt] = llm.prompts
-    assert f"<email>\n{EMAIL_TEXT}\n</email>" in prompt
-    assert '{"roles": [' in prompt
-    assert prompt == build_prompt(EMAIL_TEXT)
 
 
 # --- call_claude, with a fake Anthropic client (no network) ------------------

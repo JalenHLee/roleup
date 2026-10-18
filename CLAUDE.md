@@ -7,7 +7,7 @@ Owner: Jalen (undergrad, graduating Dec 2028, recruiting for Summer 2027).
 Full PRD: see the "Roleup — PRD" doc (linked in README).
 
 ## Current phase
-**v1, Day 3a done** — Simplify + Jobright ingestion, role filter, dedupe, alert-email adapter (IMAP + Claude parser) tested on fake data only. Next: Day 3b (real Gmail label + app password, first live run, prompt tuning).
+**v1, Day 3b code done** — all four sources wired up, link IDs + link canonicalization, public-safe output, per-email report, manual `roleup` workflow. Pending: add the three repo secrets and trigger the first live run (Actions → roleup → Run workflow), then tune the prompt from its per-email report. Next: Day 4 (Google Sheet sync + eligibility flags).
 (Update this section at the end of every session.)
 
 ## Stack
@@ -53,6 +53,7 @@ src/
   sources/jobright.py
   sources/gmail_alerts.py
   llm_extract.py
+  links.py
   terms.py
   filter.py
   dedupe.py
@@ -61,7 +62,7 @@ src/
   digest.py
   main.py
 tests/
-.github/workflows/nightly.yml
+.github/workflows/roleup.yml
 ```
 
 ## v1 milestones
@@ -101,5 +102,9 @@ Then v1.1: fit score (disqualifiers first, full 0–100 range, evidence per scor
 | Lenny's Jobs cut from v1 | Alerts are paid, and few of its postings are internships |
 | Email-sourced roles are dated by the email's date | Alerts carry no post date |
 | Term inference from titles shared in `src/terms.py` (Jobright + emails) | One set of rules, no drift between sources |
-| Email logs/errors name only Message-ID and sender domain; never subject, body, full address, or link URLs | Public repo means public Actions logs; tracking links can carry per-user tokens |
+| Email logs/errors name only the sender domain and a short sha256 hash of the Message-ID; never the Message-ID, subject, body, full address, or raw link URLs | Public repo means public Actions logs; Message-IDs and tracking links can carry per-user tokens |
 | Gmail source runs only when `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`, `ANTHROPIC_API_KEY` are all set | Local and CI runs work without secrets; the skip is printed, not silent |
+| Link IDs: code numbers every URL in an email (L1..Ln, inline markers) and the LLM returns `link_id`, never a URL | The LLM can't mangle or invent a link; replaces the Day 3a verbatim-link check |
+| `links.canonicalize` runs before a link is stored, deduped, or printed (LinkedIn → `/jobs/view/<id>/`; `utm_*` + `TRACKING_PARAMS` stripped) | One URL per posting for dedupe; tracking tokens never reach public logs or the API prompt |
+| `main.py` prints roles only via `format_role` (category, company, title, location, sources, canonical links) | One choke point for what reaches public logs, covered by a test |
+| Workflow is `workflow_dispatch` only until Day 5; secrets go to the main step only | Watch the first live runs by hand before scheduling; tests never see secrets |
