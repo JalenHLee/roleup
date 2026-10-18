@@ -221,3 +221,26 @@ GRAD_ONLY_TITLE_PATTERNS = [
     r"\bgrad(uate)? intern",  # Grad Intern, Graduate Internship
     r"\bph\.?d\b",
 ]
+
+# --- Google Sheet sync ----------------------------------------------------------
+# Credentials come from env vars only: GOOGLE_SERVICE_ACCOUNT_JSON (the full JSON key)
+# and SHEET_ID. Never commit either.
+
+# The hand-kept tracker tab. READ-ONLY: Roleup never writes to it. Every row counts
+# as already applied, whatever its Stage. Columns are found by header name.
+TRACKER_TAB = "Job Tracker"
+TRACKER_COMPANY_HEADER = "Company"
+TRACKER_POSITION_HEADER = "Position"
+TRACKER_URL_HEADER = "Job URL"
+
+# Roleup's own tab, created if missing. Append-only: existing rows are never changed.
+ROLEUP_TAB = "Roleup"
+ROLEUP_HEADERS = [
+    "Status", "First Seen", "Posted", "Category", "Company", "Title", "Location",
+    "Term", "Sources", "Link", "Other Links", "Eligibility", "Notes", "Role ID",
+]
+ROLEUP_STATUSES = ["New", "Applied", "Skip", "Hidden"]  # Status dropdown
+ROLEUP_ID_HEADER = "Role ID"
+
+# "First Seen" is the run date in this time zone (the 18:00 UTC run is 3:00 KST).
+RUN_TIMEZONE = "Asia/Seoul"
