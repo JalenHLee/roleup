@@ -91,13 +91,14 @@ JOBRIGHT_README_URL = (
     "/master/README.md"
 )
 
-# Jobright has no term column, so the term is inferred from the title.
+# --- Term inference from titles (Jobright and alert emails) ---------------
+# These sources have no term field, so the term is inferred from the title.
 # A title matching any of these gets term="Summer 2027".
-JOBRIGHT_TARGET_TERM_PATTERNS = [r"summer 2027", r"2027 summer"]
+TITLE_TARGET_TERM_PATTERNS = [r"summer 2027", r"2027 summer"]
 
 # Off-cycle titles are dropped, unless they also match a target pattern
 # (e.g. "Fall 2026/Spring- Summer 2027" is kept).
-JOBRIGHT_OFF_CYCLE_PATTERNS = [r"fall 2026", r"\bwinter\b", r"\bspring\b", r"\bco-?op\b"]
+TITLE_OFF_CYCLE_PATTERNS = [r"fall 2026", r"\bwinter\b", r"\bspring\b", r"\bco-?op\b"]
 
 # --- Dedupe (role_id normalization) ----------------------------------------
 # These are matched as whole words after lowercasing and replacing
@@ -116,3 +117,18 @@ ROLE_ID_COMPANY_SUFFIXES = ["inc", "llc", "ltd", "corp", "group"]
 
 # Normalized company name -> canonical name, applied after suffix removal.
 COMPANY_ALIASES = {"nissan motor corporation": "nissan"}
+
+# --- Alert emails (LinkedIn, Early Career Radar) ---------------------------
+# Credentials come from env vars only: GMAIL_ADDRESS, GMAIL_APP_PASSWORD, ANTHROPIC_API_KEY.
+
+GMAIL_LABEL = "job-alerts"  # Gmail label = IMAP folder name
+EMAIL_LOOKBACK_DAYS = 2  # stateless: re-read recent emails each night; dedupe absorbs repeats
+
+# Model that extracts roles from alert emails.
+LLM_MODEL = "claude-haiku-5-5"
+
+# Sender domain -> source name. Subdomains match too (e.g. e.linkedin.com).
+SENDER_SOURCES = {
+    "linkedin.com": "linkedin",
+    "earlycareerradar.com": "early-career-radar",
+}

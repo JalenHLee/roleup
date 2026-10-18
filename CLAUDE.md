@@ -1,20 +1,20 @@
 # Roleup
 
 ## What this is
-Roleup is a nightly bot that merges product and product-adjacent internship postings from five sources into one Google Sheet, removes duplicates, hides roles already applied to, and emails a morning digest. Applying stays manual: this bot never submits applications.
+Roleup is a nightly bot that merges product and product-adjacent internship postings from four sources into one Google Sheet, removes duplicates, hides roles already applied to, and emails a morning digest. Applying stays manual: this bot never submits applications.
 
 Owner: Jalen (undergrad, graduating Dec 2028, recruiting for Summer 2027).
 Full PRD: see the "Roleup — PRD" doc (linked in README).
 
 ## Current phase
-**v1, Day 2 done** — Simplify + Jobright ingestion, role filter with categories, cross-source dedupe. Next: Day 3 (Gmail label + alert-email parser).
+**v1, Day 3a done** — Simplify + Jobright ingestion, role filter, dedupe, alert-email adapter (IMAP + Claude parser) tested on fake data only. Next: Day 3b (real Gmail label + app password, first live run, prompt tuning).
 (Update this section at the end of every session.)
 
 ## Stack
 - Python 3.12, plain scripts (no framework)
 - GitHub Actions cron for the nightly run (3:00 KST = 18:00 UTC)
 - Google Sheets API via a service account (tracker = source of truth)
-- Gmail API for reading the alert-email label
+- Gmail over IMAP (`imaplib`, app password) for reading the alert-email label
 - Claude API (Anthropic SDK) for parsing alert emails, and fit scoring in v1.1
 - Email digest sent via Gmail API
 
@@ -23,7 +23,7 @@ Full PRD: see the "Roleup — PRD" doc (linked in README).
 |---|---|
 | SimplifyJobs/Summer2027-Internships | Parse repo data from GitHub (check for a listings JSON first; else parse README tables) |
 | jobright-ai/2026-Product-Management-Internship | Parse README markdown table (shows last 7 days only, so run at least daily) |
-| LinkedIn, Lenny's Jobs, Early Career Radar | Their own job-alert emails, routed to one Gmail label; Claude extracts roles |
+| LinkedIn, Early Career Radar | Their own job-alert emails, routed to the `job-alerts` Gmail label, read over IMAP; Claude extracts roles |
 
 ## Rules
 - NEVER scrape LinkedIn, Lenny's Jobs, or Early Career Radar websites. Alert emails only.
@@ -52,6 +52,8 @@ src/
   sources/simplify.py
   sources/jobright.py
   sources/gmail_alerts.py
+  llm_extract.py
+  terms.py
   filter.py
   dedupe.py
   eligibility.py
@@ -93,3 +95,11 @@ Then v1.1: fit score (disqualifiers first, full 0–100 range, evidence per scor
 | role_id strips term phrases, bare years, intern words, country tokens (US/USA); keeps MBA/degree markers | Sources decorate the same title differently; degree-restricted roles are separate applications |
 | Merged role keeps every distinct link (`links`); primary `link` = Simplify's, else first seen | Two postings can share company + title; one link would silently hide an application |
 | `COMPANY_ALIASES` in config for company names that differ across sources | One-line fix per mismatch, no logic change |
+| LLM (Claude, `LLM_MODEL` in config) parses alert emails; code validates every item | Alert layouts vary and change; validation (required fields, http link, link must appear verbatim in the email) catches bad or hallucinated output |
+| Gmail via IMAP + app password, not the Gmail API | No OAuth consent screen or token refresh for a single-user bot |
+| Stateless 2-day email lookback (`EMAIL_LOOKBACK_DAYS`) | No "last seen" state to store; dedupe absorbs re-read emails, and one missed night is covered |
+| Lenny's Jobs cut from v1 | Alerts are paid, and few of its postings are internships |
+| Email-sourced roles are dated by the email's date | Alerts carry no post date |
+| Term inference from titles shared in `src/terms.py` (Jobright + emails) | One set of rules, no drift between sources |
+| Email logs/errors name only Message-ID and sender domain; never subject, body, full address, or link URLs | Public repo means public Actions logs; tracking links can carry per-user tokens |
+| Gmail source runs only when `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`, `ANTHROPIC_API_KEY` are all set | Local and CI runs work without secrets; the skip is printed, not silent |
