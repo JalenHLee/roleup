@@ -141,7 +141,7 @@ def test_existing_roleup_tab_is_left_alone():
 def test_tracker_hides_role_by_role_id():
     # Decorated differently from the posting, same role_id after normalization.
     ss = FakeSpreadsheet([tracker_row("Acme", "Product Manager Intern, Summer 2027")])
-    counts = sync(ss, pipeline(ACME, GLOBEX), TODAY)
+    _, counts = sync(ss, pipeline(ACME, GLOBEX), TODAY)
 
     assert counts.already_applied == 1 and counts.appended_new == 1
     assert [r["Company"] for r in rows_as_dicts(ss.roleup)] == ["Globex"]
@@ -153,7 +153,7 @@ def test_tracker_hides_role_by_canonical_url():
     ss = FakeSpreadsheet([tracker_row(
         "Hooli (via agency)", "Some Other Name",
         "https://www.linkedin.com/comm/jobs/view/4000000001/?trackingId=abc&refId=x")])
-    counts = sync(ss, pipeline(linkedin), TODAY)
+    _, counts = sync(ss, pipeline(linkedin), TODAY)
 
     assert counts.already_applied == 1 and counts.appended_new == 0
     assert ss.roleup.appends == []
@@ -217,7 +217,7 @@ def test_first_seen_is_the_injected_today():
 
 def test_grad_only_role_appended_as_hidden():
     ss = FakeSpreadsheet([])
-    counts = sync(ss, pipeline(ACME, INITECH_MBA), TODAY)
+    _, counts = sync(ss, pipeline(ACME, INITECH_MBA), TODAY)
 
     assert (counts.appended_new, counts.appended_hidden) == (1, 1)
     hidden = [r for r in rows_as_dicts(ss.roleup) if r["Company"] == "Initech"]
@@ -233,17 +233,24 @@ def test_existing_roleup_rows_not_duplicated_and_user_edits_preserved():
     edited[ROLEUP_HEADERS.index("Notes")] = "fake note"
     ss.roleup.values[1] = edited
 
-    counts = sync(ss, pipeline(ACME, GLOBEX), date(2026, 10, 20))
+    _, counts = sync(ss, pipeline(ACME, GLOBEX), date(2026, 10, 20))
 
     assert counts.already_in_roleup == 1 and counts.appended_new == 1
     assert ss.roleup.values[1] == edited  # untouched
     assert [r["Company"] for r in rows_as_dicts(ss.roleup)] == ["Acme Inc", "Globex"]
 
 
-def test_one_append_call_per_run():
+def test_one_append_call_per_run_and_returns_the_appended_rows():
     ss = FakeSpreadsheet([])
-    sync(ss, pipeline(ACME, GLOBEX, INITECH_MBA), TODAY)
+    rows, _ = sync(ss, pipeline(ACME, GLOBEX, INITECH_MBA), TODAY)
     assert len(ss.roleup.appends) == 1 and len(ss.roleup.appends[0]) == 3
+    assert rows == ss.roleup.appends[0]
+
+
+def test_sync_returns_no_rows_when_nothing_appended():
+    ss = FakeSpreadsheet([tracker_row("Acme", "Product Manager Intern")])
+    rows, counts = sync(ss, pipeline(ACME), TODAY)
+    assert rows == [] and ss.roleup.appends == [] and counts.already_applied == 1
 
 
 def test_plan_sync_is_idempotent():
@@ -260,7 +267,7 @@ def test_plan_sync_is_idempotent():
 def test_sync_twice_appends_once():
     ss = FakeSpreadsheet([])
     sync(ss, pipeline(ACME, GLOBEX), TODAY)
-    counts = sync(ss, pipeline(ACME, GLOBEX), TODAY)
+    _, counts = sync(ss, pipeline(ACME, GLOBEX), TODAY)
     assert len(ss.roleup.appends) == 1
     assert (counts.appended_new, counts.appended_hidden) == (0, 0)
 

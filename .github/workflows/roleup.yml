@@ -1,11 +1,28 @@
-# Roleup run. Manual trigger only for now; the nightly schedule comes on Day 5.
+# Roleup run: twice daily, plus manual runs.
+# Schedules are UTC and set 10 minutes early to absorb GitHub's cron delays:
+#   21:50 UTC = 06:50 KST (Morning: always emails, a heartbeat)
+#   08:50 UTC = 17:50 KST (Evening: emails only with new roles or failures)
 # Logs are public (public repo): src/main.py prints only canonical links,
-# hashed email IDs, and sheet sync counts (never tracker or sheet contents).
+# hashed email IDs, sheet sync counts, and a one-line digest status (never
+# tracker or sheet contents, never the email body).
 # Secrets are passed to the main step only, never to tests.
 name: roleup
 
 on:
+  schedule:
+    - cron: "50 21 * * *"
+    - cron: "50 8 * * *"
   workflow_dispatch:
+    inputs:
+      force_send:
+        description: "Send the digest even if the run label would skip it"
+        type: boolean
+        default: false
+
+# Never run two at once: overlapping runs could both append the same roles.
+concurrency:
+  group: roleup
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -36,3 +53,6 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
+          DIGEST_TO: ${{ secrets.DIGEST_TO }}  # optional; defaults to GMAIL_ADDRESS
+          # Empty on scheduled runs (no inputs), so they never force.
+          ROLEUP_FORCE_SEND: ${{ inputs.force_send }}

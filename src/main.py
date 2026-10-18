@@ -1,4 +1,4 @@
-"""Roleup entry point: fetch all sources, run the pipeline, sync the sheet, print.
+"""Roleup entry point: fetch all sources, run the pipeline, sync the sheet, email the digest.
 
 The Gmail alert source and the sheet sync each run only when their env vars are set. Each source runs in
 isolation: one that crashes is reported and skipped, the others still run, and
@@ -8,7 +8,9 @@ Output goes to public Actions logs, so roles are printed only through
 format_role (company, title, location, category, sources, canonical links),
 and emails only through format_email_report (sender domain + hashed ID).
 The sheet sync prints counts only, never tracker or sheet contents. It runs after
-the pipeline with the same isolation: a failure is reported and exits 1.
+the pipeline with the same isolation: a failure is reported and exits 1. The digest
+email is the next isolated step; it is sent even if the sheet sync failed (and says
+so), and its body is never printed: only "digest sent (...)" / "digest skipped (...)".
 
 Run with:  python -m src.main
 """
@@ -23,7 +25,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from src import llm_extract, sheet
+from src import digest, llm_extract, mailer, sheet
 from src.config import RUN_TIMEZONE
 from src.links import canonicalize
 from src.models import Role
@@ -35,6 +37,9 @@ from src.sources.gmail_alerts import EmailResult
 GMAIL_ENV = ("GMAIL_ADDRESS", "GMAIL_APP_PASSWORD", "ANTHROPIC_API_KEY")
 # Env vars the sheet sync needs (read by sheet.open_spreadsheet).
 SHEET_ENV = ("GOOGLE_SERVICE_ACCOUNT_JSON", "SHEET_ID")
+# Env vars the digest email needs (read by mailer). DIGEST_TO is optional.
+DIGEST_ENV = ("GMAIL_ADDRESS", "GMAIL_APP_PASSWORD")
+SHEET_URL = "https://docs.google.com/spreadsheets/d/{}"
 FAILURE_MESSAGE_LIMIT = 300  # characters of an exception message to print
 
 
@@ -85,7 +90,8 @@ def run_sources(
 
 def _secrets() -> dict[str, str]:
     """{label: value} of every secret value to mask, incl. key fields of the service account JSON."""
-    secrets = {name: os.environ[name] for name in GMAIL_ENV + SHEET_ENV if os.environ.get(name)}
+    names = GMAIL_ENV + SHEET_ENV + ("DIGEST_TO",)
+    secrets = {name: os.environ[name] for name in names if os.environ.get(name)}
     try:
         info = json.loads(os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", ""))
     except ValueError:
@@ -112,27 +118,69 @@ def describe_failure(e: Exception) -> str:
     return f"{type(e).__name__}: {message}"
 
 
+def run_now() -> datetime:
+    """Now in RUN_TIMEZONE (KST): sets the run label and the "First Seen" date."""
+    return datetime.now(ZoneInfo(RUN_TIMEZONE))
+
+
 def run_date() -> date:
     """Today in RUN_TIMEZONE: the "First Seen" date for rows added by this run."""
-    return datetime.now(ZoneInfo(RUN_TIMEZONE)).date()
+    return run_now().date()
 
 
 def run_sheet_sync(
     result: PipelineResult,
     open_spreadsheet: Callable | None = None,
     today: date | None = None,
-) -> tuple[sheet.SyncCounts | None, str | None]:
-    """Sync the sheet in isolation. Returns (counts, None), or (None, failure) if it raised.
+) -> tuple[list[list[str]], sheet.SyncCounts | None, str | None]:
+    """Sync the sheet in isolation. Returns (appended rows, counts, None),
+    or ([], None, failure) if it raised.
 
     open_spreadsheet defaults to sheet.open_spreadsheet; tests inject a fake.
     """
     try:
         spreadsheet = (open_spreadsheet or sheet.open_spreadsheet)()
-        return sheet.sync(spreadsheet, result, today or run_date()), None
+        rows, counts = sheet.sync(spreadsheet, result, today or run_date())
+        return rows, counts, None
     except Exception as e:  # isolate the sheet like a source
         failure = describe_failure(e)
         logging.getLogger(__name__).error("Sheet sync failed: %s", failure)
-        return None, failure
+        return [], None, failure
+
+
+def force_send() -> bool:
+    """ROLEUP_FORCE_SEND=true (manual workflow_dispatch input) always sends the digest."""
+    return os.environ.get("ROLEUP_FORCE_SEND", "").strip().lower() == "true"
+
+
+def run_digest(
+    appended_rows: list[list[str]],
+    counts: sheet.SyncCounts | None,
+    failures: dict[str, str],
+    parse_error_count: int,
+    now: datetime | None = None,
+    send: Callable | None = None,
+    force: bool = False,
+) -> tuple[str, str | None]:
+    """Build and send the digest in isolation. Returns (public status line, failure or None).
+
+    The status line holds only the run label and a count; the email body never reaches logs.
+    """
+    now = now or run_now()
+    label = digest.run_label(now)
+    new_rows = [r for r in sheet.row_dicts(appended_rows) if r["Status"] == sheet.STATUS_NEW]
+    if not digest.should_send(label, len(new_rows), failures, force=force):
+        return f"digest skipped ({label}, nothing new)", None
+    try:
+        sheet_url = SHEET_URL.format(os.environ["SHEET_ID"]) if os.environ.get("SHEET_ID") else ""
+        subject, html, text = digest.build_digest(
+            new_rows, counts, failures, parse_error_count, sheet_url, label, now.date())
+        (send or mailer.send_email)(subject, html, text)
+        return f"digest sent ({label}): {len(new_rows)} new roles", None
+    except Exception as e:  # isolate the digest like a source
+        failure = describe_failure(e)
+        logging.getLogger(__name__).error("Digest failed: %s", failure)
+        return f"digest failed ({label})", failure
 
 
 def format_sync_counts(counts: sheet.SyncCounts) -> list[str]:
@@ -178,14 +226,25 @@ def main() -> int:
 
     result = run_pipeline(fetched)
 
+    appended, sync_counts = [], None
     missing = [name for name in SHEET_ENV if not os.environ.get(name)]
     if missing:
-        sync_counts = None
         print(f"Sheet sync skipped: missing env vars: {', '.join(missing)}\n")  # names only
     else:
-        sync_counts, sync_failure = run_sheet_sync(result)
+        appended, sync_counts, sync_failure = run_sheet_sync(result)
         if sync_failure:
             failures["sheet"] = sync_failure
+
+    # The digest reports the failures so far; its own failure is added after it runs.
+    missing = [name for name in DIGEST_ENV if not os.environ.get(name)]
+    if missing:
+        digest_status = f"digest skipped: missing env vars: {', '.join(missing)}"
+    else:
+        parse_error_count = sum(len(errs) for errs in errors.values())
+        digest_status, digest_failure = run_digest(
+            appended, sync_counts, dict(failures), parse_error_count, force=force_send())
+        if digest_failure:
+            failures["digest"] = digest_failure
 
     print(f"=== Digest ({len(result.digest)}) ===")
     for r in sorted(result.digest, key=lambda r: (r.category, r.company.lower())):
@@ -221,6 +280,9 @@ def main() -> int:
     if sync_counts is not None:
         print("\n=== Sheet sync ===")
         print("\n".join(format_sync_counts(sync_counts)))
+
+    print("\n=== Digest email ===")
+    print(digest_status)  # never the body
 
     print("\n=== Summary ===")
     # Keyed by each role's own source: the Gmail adapter yields linkedin, early-career-radar, ...

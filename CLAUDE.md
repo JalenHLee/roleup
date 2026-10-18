@@ -7,16 +7,16 @@ Owner: Jalen (undergrad, graduating Dec 2028, recruiting for Summer 2027).
 Full PRD: see the "Roleup — PRD" doc (linked in README).
 
 ## Current phase
-**v1, Day 4 done** — Google Sheet sync (`src/sheet.py`): reads the "Job Tracker" tab read-only (every row = already applied, matched by role_id or canonical Job URL), appends new roles to the "Roleup" tab (created with headers, Status dropdown, frozen header if missing) in one batched, append-only call; digest roles as New, grad-only as Hidden. Runs after the pipeline, isolated like a source; prints counts only. Pending: first live `workflow_dispatch` run against the real sheet (check the tab is created and the counts look right; a second run should append 0). Next: Day 5 (digest email + nightly schedule).
+**v1 complete, pending the first scheduled runs** — Day 5 added the digest email (`src/digest.py` builds it, `src/mailer.py` sends it over Gmail SMTP) and a twice-daily schedule (06:50 + 17:50 KST, concurrency-locked). The digest lists exactly the rows the sheet sync appended this run; the Morning run always sends (heartbeat), the Evening run only with new roles or failures; `force_send` on a manual run always sends. Pending: one manual `workflow_dispatch` with `force_send` to confirm the email arrives, then watch the first Morning and Evening scheduled runs. Next: v1.1 (fit score).
 (Update this section at the end of every session.)
 
 ## Stack
 - Python 3.12, plain scripts (no framework)
-- GitHub Actions cron for the nightly run (3:00 KST = 18:00 UTC)
+- GitHub Actions cron, twice daily: 21:50 + 08:50 UTC (06:50 + 17:50 KST)
 - Google Sheets API via a service account (tracker = source of truth)
 - Gmail over IMAP (`imaplib`, app password) for reading the alert-email label
 - Claude API (Anthropic SDK) for parsing alert emails, and fit scoring in v1.1
-- Email digest sent via Gmail API
+- Email digest sent via Gmail SMTP (`smtplib`, same app password)
 
 ## Sources
 | Source | Method |
@@ -109,7 +109,7 @@ Then v1.1: fit score (disqualifiers first, full 0–100 range, evidence per scor
 | Link IDs: code numbers every URL in an email (L1..Ln, inline markers) and the LLM returns `link_id`, never a URL | The LLM can't mangle or invent a link; replaces the Day 3a verbatim-link check |
 | `links.canonicalize` runs before a link is stored, deduped, or printed (LinkedIn → `/jobs/view/<id>/`; `utm_*` + `TRACKING_PARAMS` stripped) | One URL per posting for dedupe; tracking tokens never reach public logs or the API prompt |
 | `main.py` prints roles only via `format_role` (category, company, title, location, sources, canonical links) | One choke point for what reaches public logs, covered by a test |
-| Workflow is `workflow_dispatch` only until Day 5; secrets go to the main step only | Watch the first live runs by hand before scheduling; tests never see secrets |
+| Secrets go to the main workflow step only | Tests never see secrets |
 | Each source runs in its own try/except; a failure is printed under "Source failures" (type + message, secrets masked) and the run exits 1 after printing everything | One broken source shouldn't block the digest; the Actions run still shows red so the failure isn't missed |
 | Pipeline layers in `src/pipeline.py`: term → filter → dedupe → location → eligibility, each counted in the summary | One place to see what each rule removes; adapters no longer drop off-cycle roles themselves |
 | Off-cycle term check for all sources: STRONG patterns (Fall 2026, Spring 2027, Winter, off-cycle, 2026 start) drop unless the title says Summer 2027; WEAK (co-op, part-time) drop only when the term is unknown | Sources mis-tag terms; but "Intern/Co-op" tagged Summer 2027 is usually a real summer role |
@@ -125,3 +125,13 @@ Then v1.1: fit score (disqualifiers first, full 0–100 range, evidence per scor
 | Sheet sync logs print counts only (already in Roleup, already applied, appended New / Hidden); failure messages mask SHEET_ID and service-account key fields | Public Actions logs; tracker contents are personal |
 | "First Seen" = run date (KST, `RUN_TIMEZONE`), injected into `plan_sync`; separate "Posted" column = `date_posted` | First Seen is when Roleup added the row; post date is kept too; injection keeps `plan_sync` pure |
 | Sheet sync runs only when `GOOGLE_SERVICE_ACCOUNT_JSON` and `SHEET_ID` are set; it still runs if a source failed | Local/CI runs work without secrets; append-only makes a partial night harmless |
+| Twice-daily runs (07:00 + 18:00 KST targets) instead of nightly | Halves the worst-case time from posting to discovery |
+| Heartbeat on the Morning run only: Morning always emails (even 0 new roles); Evening emails only with new roles or failures; run label from the KST hour (before 12:00 = Morning) | Silence means broken, without a second daily no-news email |
+| Crons set 10 minutes early (06:50 / 17:50 KST) | GitHub's scheduled runs often start late; the label comes from the hour, so a delay can't flip it |
+| Digest lists only rows the sheet sync appended this run (Status New); if the sync fails the digest still sends and says so | The email matches the sheet exactly; missed roles are appended and shown next run |
+| Email is private, logs are public: the digest body (titles, links, sheet URL) is never printed; logs get one line ("digest sent (Morning): N new roles" / "digest skipped (Evening, nothing new)") | Public Actions logs; the inbox is the private channel |
+| Workflow `concurrency: roleup`, `cancel-in-progress: false` | Two overlapping runs could read the same Roleup IDs and both append the same roles |
+| Digest over Gmail SMTP with the existing app password, to `DIGEST_TO` (defaults to `GMAIL_ADDRESS`) | No OAuth or Gmail API setup; same credential as IMAP |
+| Problems in the subject ("— 1 problem") and a Problems section (step failures, parse-error count); all role text HTML-escaped, only http(s) links clickable | A red run is visible from the inbox; titles are external data |
+| `force_send` boolean on manual runs (env `ROLEUP_FORCE_SEND`) always sends the digest; scheduled runs never set it | Test the email on demand without waiting for a Morning run |
+| Known risk: GitHub disables scheduled workflows in public repos after 60 days without repo activity (it emails a warning first) | Re-enable from the Actions tab or push a commit when the warning arrives |
