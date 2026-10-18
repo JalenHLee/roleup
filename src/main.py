@@ -132,8 +132,8 @@ def run_sheet_sync(
     result: PipelineResult,
     open_spreadsheet: Callable | None = None,
     today: date | None = None,
-) -> tuple[list[list[str]], sheet.SyncCounts | None, str | None]:
-    """Sync the sheet in isolation. Returns (appended rows, counts, None),
+) -> tuple[list[dict[str, str]], sheet.SyncCounts | None, str | None]:
+    """Sync the sheet in isolation. Returns (appended records, counts, None),
     or ([], None, failure) if it raised.
 
     open_spreadsheet defaults to sheet.open_spreadsheet; tests inject a fake.
@@ -154,7 +154,7 @@ def force_send() -> bool:
 
 
 def run_digest(
-    appended_rows: list[list[str]],
+    appended: list[dict[str, str]],
     counts: sheet.SyncCounts | None,
     failures: dict[str, str],
     parse_error_count: int,
@@ -168,7 +168,7 @@ def run_digest(
     """
     now = now or run_now()
     label = digest.run_label(now)
-    new_rows = [r for r in sheet.row_dicts(appended_rows) if r["Status"] == sheet.STATUS_NEW]
+    new_rows = [r for r in appended if r["Status"] == sheet.STATUS_NEW]
     if not digest.should_send(label, len(new_rows), failures, force=force):
         return f"digest skipped ({label}, nothing new)", None
     try:
@@ -187,6 +187,7 @@ def format_sync_counts(counts: sheet.SyncCounts) -> list[str]:
     """Counts only: never tracker or sheet contents (Actions logs are public)."""
     return [
         f"already in Roleup tab: {counts.already_in_roleup}",
+        f"already in Roleup (by link): {counts.already_in_roleup_by_link}",
         f"skipped as already applied (tracker): {counts.already_applied}",
         f"appended New: {counts.appended_new}",
         f"appended Hidden: {counts.appended_hidden}",
@@ -271,6 +272,9 @@ def main() -> int:
 
     recoveries = sum(e.company_recoveries for e in email_report or [])
     print(f"\nCompany recovered from subtitle (alert emails): {recoveries}")
+
+    company_fixes = sum(e.company_fixes for e in email_report or [])
+    print(f"\nCompany sanity fixes (alert emails): {company_fixes}")
 
     fixes = [fix for e in email_report or [] for fix in e.title_fixes]
     print(f"\nTitle company-suffix fixes (alert emails): {len(fixes)}")

@@ -7,7 +7,7 @@ Owner: Jalen (undergrad, graduating Dec 2028, recruiting for Summer 2027).
 Full PRD: see the "Roleup — PRD" doc (linked in README).
 
 ## Current phase
-**v1 complete, pending the first scheduled runs** — Day 5 added the digest email (`src/digest.py` builds it, `src/mailer.py` sends it over Gmail SMTP) and a twice-daily schedule (06:50 + 17:50 KST, concurrency-locked). The digest lists exactly the rows the sheet sync appended this run; the Morning run always sends (heartbeat), the Evening run only with new roles or failures; `force_send` on a manual run always sends. Pending: one manual `workflow_dispatch` with `force_send` to confirm the email arrives, then watch the first Morning and Evening scheduled runs. Next: v1.1 (fit score).
+**v1 live; fixes from the first real digest** — the first Evening digest re-listed 3 roles already in the sheet because the alert-email AI's text varied between runs. Fixed: identity by canonical link (plus role_ids recomputed from existing rows), company sanity checks before validation, location parentheticals stripped from role_id titles. The Roleup tab is now written by header name, so the user owns its layout; a fresh tab gets the new column order with six columns hidden. Pending: confirm on the next runs that "already in Roleup (by link)" absorbs the repeats and "Company sanity fixes" fires on bad AI companies; make sure the user's own Status dropdown includes New and Hidden. Next: v1.1 (fit score).
 (Update this section at the end of every session.)
 
 ## Stack
@@ -35,7 +35,7 @@ Full PRD: see the "Roleup — PRD" doc (linked in README).
 - A failed parse is logged and reported, never silently dropped.
 
 ## Data model (one row per role)
-`role_id` (normalized company + title + location), `company`, `title`, `location`, `link`, `sources` (comma list), `first_seen` (date), `eligibility_flag` (blank / grad-only today; MBA-only / grad-date-conflict reserved), `status` (New / Applied / Skip / Interviewing / Rejected / Offer), `fit_score` (v1.1), `notes`
+`role_id` (normalized company + title + location), `company`, `title`, `location`, `link`, `sources` (comma list), `first_seen` (date), `eligibility_flag` (blank / grad-only today; MBA-only / grad-date-conflict reserved), `status` (bot writes New / Hidden; the user sets the rest), `fit_score` (v1.1), `notes`
 
 ## Role filter (keep)
 Product manager, APM, product intern, product analyst, product ops, growth, strategy, business operations, operations, strategy & operations, product marketing (titles containing "Product Marketing" only; not generic marketing/brand/social) — internships only.
@@ -135,3 +135,9 @@ Then v1.1: fit score (disqualifiers first, full 0–100 range, evidence per scor
 | Problems in the subject ("— 1 problem") and a Problems section (step failures, parse-error count); all role text HTML-escaped, only http(s) links clickable | A red run is visible from the inbox; titles are external data |
 | `force_send` boolean on manual runs (env `ROLEUP_FORCE_SEND`) always sends the digest; scheduled runs never set it | Test the email on demand without waiting for a Morning run |
 | Known risk: GitHub disables scheduled workflows in public repos after 60 days without repo activity (it emails a warning first) | Re-enable from the Actions tab or push a commit when the warning arrives |
+| Identity from stable IDs, not AI text: a role is already in the Roleup tab if its role_id OR any canonical link (Link + Other Links) is there; counted separately as "already in Roleup (by link)" | The alert-email AI writes the same posting differently between runs; LinkedIn `/jobs/view/<id>/` links don't change |
+| Existing rows' role_ids are also recomputed from Company + Title each run | A role_id normalization change can never re-append old rows |
+| Company sanity checks before subtitle recovery and validation: company equal to the title or containing "intern(ship)" → blank (then recovered from the subtitle); a leading "U.S."/"US"/"USA" is stripped only when the full company isn't verbatim in the email; fixes counted in the summary | Live failures ("U.S. Atlassian", a title in the company field); the verbatim guard keeps real names like "US Foods" |
+| role_id strips a trailing "(...)" that lists locations (US state code/name or "; "), unless it has a degree marker | Same posting with its location list rewritten ("(New York, NY; Boston, MA)" vs "(New York; New Jersey; Boston)"); "(Payments)" and "(MBA)" stay |
+| Write by header name: appended rows follow the Roleup tab's own row-1 order; unknown user columns stay blank; required headers (Status, Company, Title, Link, Role ID) missing → fail before any write | The user owns the layout (reorder, hide, add columns) |
+| An existing Roleup tab is never restyled: no header, validation, or formatting change; only a fresh tab gets the layout (new column order, Status dropdown, frozen header, last six columns hidden) | The user's own dropdown and formatting survive; the bot only writes Status New / Hidden |

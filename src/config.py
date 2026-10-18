@@ -233,14 +233,22 @@ TRACKER_COMPANY_HEADER = "Company"
 TRACKER_POSITION_HEADER = "Position"
 TRACKER_URL_HEADER = "Job URL"
 
-# Roleup's own tab, created if missing. Append-only: existing rows are never changed.
+# Roleup's own tab. Append-only: existing rows are never changed. The user owns the
+# layout: rows are written by header name, in whatever order row 1 has, and an
+# existing tab's validation and formatting are never touched.
 ROLEUP_TAB = "Roleup"
+# Layout used only when the bot creates the tab fresh; the last six start hidden.
 ROLEUP_HEADERS = [
-    "Status", "First Seen", "Posted", "Category", "Company", "Title", "Location",
-    "Term", "Sources", "Link", "Other Links", "Eligibility", "Notes", "Role ID",
+    "Status", "Company", "Title", "Category", "Location", "Posted", "Link", "Notes",
+    "First Seen", "Term", "Sources", "Other Links", "Eligibility", "Role ID",
 ]
-ROLEUP_STATUSES = ["New", "Applied", "Skip", "Hidden"]  # Status dropdown
+ROLEUP_HIDDEN_HEADERS = ["First Seen", "Term", "Sources", "Other Links", "Eligibility", "Role ID"]
+# The tab must have these headers (anywhere in row 1, hidden is fine); else the sync fails loudly.
+ROLEUP_REQUIRED_HEADERS = ["Status", "Company", "Title", "Link", "Role ID"]
+ROLEUP_STATUSES = ["New", "Applied", "Skip", "Hidden"]  # Status dropdown on a new tab
 ROLEUP_ID_HEADER = "Role ID"
+ROLEUP_LINK_HEADER = "Link"
+ROLEUP_OTHER_LINKS_HEADER = "Other Links"  # optional; ", "-separated
 
 # "First Seen" is the run date in this time zone (the 18:00 UTC run is 3:00 KST).
 RUN_TIMEZONE = "Asia/Seoul"

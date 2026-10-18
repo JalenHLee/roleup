@@ -43,7 +43,7 @@ GLOBEX = role("Globex", "Growth Intern", "Remote", "L2")
 
 def run(response, text=EMAIL_TEXT):
     """Return (roles, errors); title fixes are tested separately."""
-    roles, errors, _, _ = extract_roles(text, "linkedin", EMAIL_DATE, fake_llm(response))
+    roles, errors, _, _, _ = extract_roles(text, "linkedin", EMAIL_DATE, fake_llm(response))
     return roles, errors
 
 
@@ -269,7 +269,7 @@ def test_strip_company_suffix(title, company, expected):
 
 def test_extract_roles_reports_title_fixes():
     response = {"roles": [role(title="Product Manager Intern (Summer 2027) - Acme Robotics"), GLOBEX]}
-    roles, errors, fixes, _ = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
+    roles, errors, fixes, _, _ = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
     assert errors == [] and roles[0].title == "Product Manager Intern (Summer 2027)"
     assert fixes == [("Product Manager Intern (Summer 2027) - Acme Robotics",
                       "Product Manager Intern (Summer 2027)")]
@@ -283,7 +283,7 @@ Q2_TITLE = "2027 Summer Internship - Product Operations"
 def test_empty_company_recovered_from_subtitle_then_suffix_stripped():
     response = {"roles": [{"company": "", "title": Q2_TITLE + " Q2", "location": "",
                            "subtitle": "Q2 · Austin, Texas, United States", "link_id": "L1"}]}
-    roles, errors, fixes, recoveries = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
+    roles, errors, fixes, recoveries, _ = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
     assert errors == []
     [r] = roles
     assert (r.company, r.title, r.location) == ("Q2", Q2_TITLE, "Austin, Texas, United States")
@@ -292,14 +292,14 @@ def test_empty_company_recovered_from_subtitle_then_suffix_stripped():
 
 def test_subtitle_recovery_keeps_existing_location():
     response = {"roles": [{**role(company=""), "subtitle": "Acme Robotics · Somewhere Else"}]}
-    roles, errors, _, recoveries = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
+    roles, errors, _, recoveries, _ = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
     assert errors == [] and recoveries == 1
     assert (roles[0].company, roles[0].location) == ("Acme Robotics", "New York, NY")
 
 
 def test_subtitle_ignored_when_company_present():
     response = {"roles": [{**role(), "subtitle": "Other Co · Remote"}]}
-    roles, errors, _, recoveries = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
+    roles, errors, _, recoveries, _ = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
     assert errors == [] and recoveries == 0 and roles[0].company == "Acme Robotics"
 
 
@@ -307,7 +307,7 @@ def test_subtitle_ignored_when_company_present():
                                    {"subtitle": " · Austin, TX"}, {"subtitle": None}])
 def test_empty_company_without_usable_subtitle_is_still_an_error(extra):
     response = {"roles": [{**role(company=""), **extra}, GLOBEX]}
-    roles, errors, _, recoveries = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
+    roles, errors, _, recoveries, _ = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
     assert recoveries == 0 and [r.company for r in roles] == ["Globex"]
     assert len(errors) == 1 and "missing company" in errors[0]
 
@@ -316,3 +316,42 @@ def test_prompt_asks_for_verbatim_subtitle():
     llm = fake_llm({"roles": []})
     extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, llm)
     assert '"subtitle"' in llm.prompts[0] and "verbatim" in llm.prompts[0]
+
+
+# --- company sanity checks (before subtitle recovery and validation) ------------
+
+def test_country_prefix_not_in_email_is_stripped_and_counted():
+    # Live failure: the title's "U.S." tail was pulled into the company.
+    response = {"roles": [role(company="U.S. Atlassian", title="Product Manager Intern")]}
+    [r], errors, _, _, company_fixes = extract_roles(
+        EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
+    assert errors == [] and r.company == "Atlassian" and company_fixes == 1
+
+
+def test_real_country_prefixed_company_in_email_is_kept():
+    text = EMAIL_TEXT.replace("Acme Robotics", "US Foods")
+    response = {"roles": [role(company="US Foods")]}
+    [r], _, _, _, company_fixes = extract_roles(text, "linkedin", EMAIL_DATE, fake_llm(response))
+    assert r.company == "US Foods" and company_fixes == 0
+
+
+def test_title_text_in_company_is_recovered_from_subtitle():
+    # Live failure (Q2): the title was put in the company field.
+    item = role(company="2027 Summer Internship - Product Operations Q2",
+                title="Product Operations Intern Q2", location="")
+    item["subtitle"] = "Q2 · Austin, Texas, United States"
+    [r], errors, fixes, recoveries, company_fixes = extract_roles(
+        EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm({"roles": [item]}))
+    assert errors == []
+    assert (r.company, r.title, r.location) == (
+        "Q2", "Product Operations Intern", "Austin, Texas, United States")
+    assert (company_fixes, recoveries) == (1, 1)
+    assert fixes == [("Product Operations Intern Q2", "Product Operations Intern")]
+
+
+def test_company_equal_to_title_without_subtitle_is_reported():
+    response = {"roles": [role(company="Product Manager Intern", title="Product Manager Intern")]}
+    roles, errors, _, _, company_fixes = extract_roles(
+        EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
+    assert roles == [] and company_fixes == 1
+    assert len(errors) == 1 and "company" in errors[0]

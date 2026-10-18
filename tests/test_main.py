@@ -119,7 +119,7 @@ def appended_row(status="New", title=BODY_MARKER):
     values = dict.fromkeys(ROLEUP_HEADERS, "")
     values.update(Status=status, Company="Fakeco", Title=title, Category="PM",
                   Link="https://fakeco.example.com/jobs/1")
-    return [values[h] for h in ROLEUP_HEADERS]
+    return values
 
 
 class Outbox:
