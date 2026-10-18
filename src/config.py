@@ -83,6 +83,25 @@ CATEGORY_RULES = [
     ("Product (other)", [r"product"]),
 ]
 
+# A title matching a category's excludes can't take that category; it falls
+# through to the next rules (so "Product Strategy" can still be PM).
+CATEGORY_EXCLUDES = {
+    "Strategy": [
+        r"\bsystematic\b",  # quant/trading strategies
+        r"multi-strategy",  # hedge-fund platforms
+        r"\btrading\b",
+        r"investment strateg",  # strategy / strategies
+    ],
+    "Operations": [
+        r"mission operations",  # aerospace
+        r"field operations",
+        r"power system operations",
+        r"flight operations",
+        r"security operations",
+        r"\bit operations\b",
+    ],
+}
+
 # --- Jobright -------------------------------------------------------------
 
 # Jobright's PM internship list. It only shows the last 7 days, so run daily.
@@ -91,14 +110,24 @@ JOBRIGHT_README_URL = (
     "/master/README.md"
 )
 
-# --- Term inference from titles (Jobright and alert emails) ---------------
-# These sources have no term field, so the term is inferred from the title.
-# A title matching any of these gets term="Summer 2027".
+# --- Term check from titles (all sources) ----------------------------------
+# Jobright and alert emails have no term field, so a title matching any of
+# these gets term="Summer 2027" (else "unknown").
 TITLE_TARGET_TERM_PATTERNS = [r"summer 2027", r"2027 summer"]
 
-# Off-cycle titles are dropped, unless they also match a target pattern
-# (e.g. "Fall 2026/Spring- Summer 2027" is kept).
-TITLE_OFF_CYCLE_PATTERNS = [r"fall 2026", r"\bwinter\b", r"\bspring\b", r"\bco-?op\b"]
+# Off-cycle titles are dropped by the term layer (src/pipeline.py), for every source.
+# STRONG: dropped unless the title also says Summer 2027, even if the source
+# tagged it Summer 2027 (e.g. Simplify-tagged "Spring 2027 Product Intern").
+TITLE_OFF_CYCLE_STRONG = [
+    r"\bfall 2026\b", r"\b2026 fall\b",
+    r"\bspring 2027\b", r"\b2027 spring\b",
+    r"\bwinter\b",
+    r"\boff[- ]cycle\b",
+    r"\b2026 start\b",
+]
+# WEAK: dropped only when the term is unknown; a source-tagged Summer 2027
+# role is kept (e.g. "Product Management Intern/Co-op").
+TITLE_OFF_CYCLE_WEAK = [r"\bco[- ]?op\b", r"\bpart[- ]time\b"]
 
 # --- Dedupe (role_id normalization) ----------------------------------------
 # These are matched as whole words after lowercasing and replacing
@@ -111,12 +140,16 @@ ROLE_ID_INTERN_WORDS = ["internship", "intern"]
 
 # Country tokens some sources append to titles ("..., 2027 Summer U.S.").
 # Degree markers like "MBA" are deliberately NOT here: those are different roles.
-ROLE_ID_TITLE_NOISE = ["united states", "usa", "u s", "us"]
+# "Multiple Teams" is a team-picker suffix (Coinbase), not a different role.
+ROLE_ID_TITLE_NOISE = ["multiple teams", "united states", "usa", "u s", "us"]
 
-ROLE_ID_COMPANY_SUFFIXES = ["inc", "llc", "ltd", "corp", "group"]
+ROLE_ID_COMPANY_SUFFIXES = ["inc", "llc", "ltd", "corp", "group", "holdings"]
 
 # Normalized company name -> canonical name, applied after suffix removal.
-COMPANY_ALIASES = {"nissan motor corporation": "nissan"}
+COMPANY_ALIASES = {
+    "nissan motor corporation": "nissan",
+    "white cap canada": "white cap",
+}
 
 # --- Alert emails (LinkedIn, Early Career Radar) ---------------------------
 # Credentials come from env vars only: GMAIL_ADDRESS, GMAIL_APP_PASSWORD, ANTHROPIC_API_KEY.
@@ -139,4 +172,51 @@ SENDER_SOURCES = {
 TRACKING_PARAMS = [
     "trackingId", "refId", "lipi", "midToken", "midSig",
     "trk", "trkEmail", "eid", "otpToken",
+]
+
+# --- Location (US-only, unclear kept) ---------------------------------------
+# Used by src/location.py, and by dedupe to strip " - City, ST" from titles.
+US_STATES = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
+    "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "DC": "District of Columbia",
+    "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois",
+    "IN": "Indiana", "IA": "Iowa", "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana",
+    "ME": "Maine", "MD": "Maryland", "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota",
+    "MS": "Mississippi", "MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada",
+    "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
+    "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma", "OR": "Oregon",
+    "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
+    "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont", "VA": "Virginia",
+    "WA": "Washington", "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming",
+}
+
+# A location segment matching any of these counts as US (checked first, so
+# "London, KY" stays US). State codes/names are checked separately.
+US_LOCATION_PATTERNS = [r"\bunited states\b", r"\busa\b", r"\bu\.?s\.?a?\b", r"\bamerica\b"]
+
+# A segment matching these (and no US pattern) is clearly non-US. Anything
+# else is "unclear" and kept. A role is dropped only if ALL segments are non-US.
+NON_US_LOCATION_PATTERNS = [
+    r"\bcanada\b", r"\bontario\b", r"\bquebec\b", r"\bbritish columbia\b", r"\balberta\b",
+    r",\s*(on|bc|ab|qc|ns|mb|sk)\b",  # Canadian province codes after a comma
+    r"\btoronto\b", r"\bmontr[eé]al\b", r"\bvancouver\b", r"\bcalgary\b", r"\bmarkham\b",
+    r"\bottawa\b", r"\bwaterloo\b", r"\bkitchener\b", r"\bburnaby\b", r"\bmississauga\b",
+    r"\buk\b", r"\bunited kingdom\b", r"\bengland\b", r"\bscotland\b", r"\bwales\b",
+    r"\bireland\b", r"\blondon\b", r"\bmanchester\b", r"\bedinburgh\b", r"\bdublin\b",
+    r"\bindia\b", r"\bbengaluru\b", r"\bbangalore\b", r"\bhyderabad\b", r"\bmumbai\b",
+    r"\bpune\b", r"\bgurgaon\b", r"\bgurugram\b", r"\bnoida\b", r"\bchennai\b",
+    r"\bmexico\b", r"\bbrazil\b", r"\bgermany\b", r"\bfrance\b", r"\bnetherlands\b",
+    r"\bspain\b", r"\bpoland\b", r"\bsingapore\b", r"\bjapan\b", r"\bkorea\b", r"\bchina\b",
+    r"\bhong kong\b", r"\btaiwan\b", r"\baustralia\b", r"\bisrael\b", r"\bphilippines\b",
+]
+
+# --- Eligibility --------------------------------------------------------------
+# Title patterns (lowercased) for roles open only to grad students -> "grad-only".
+# Plain "MS" is not here: "(BS/MS)" roles are open to undergrads.
+GRAD_ONLY_TITLE_PATTERNS = [
+    r"\bmba\b",  # also "MS or MBA"
+    r"\bmaster'?s\b",
+    r"\bmasters\b",
+    r"\bgrad(uate)? intern",  # Grad Intern, Graduate Internship
+    r"\bph\.?d\b",
 ]

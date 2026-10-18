@@ -45,12 +45,28 @@ def test_plain_text_company(parsed):
     assert by_title(roles, title).company == "Initech"
 
 
-def test_off_cycle_roles_dropped(parsed):
+def test_off_cycle_roles_kept_for_the_term_layer(parsed):
+    # The parser no longer drops off-cycle titles; the pipeline's term layer does,
+    # so every drop is counted in one place (see test_pipeline.py).
     roles, errors = parsed
-    titles = {r.title for r in roles}
-    assert "Product Manager Spring Co-op 2027" not in titles
-    assert "Strategy Intern - Winter 2027" not in titles
-    assert not any("Co-op" in e or "Winter" in e for e in errors)  # dropped, not errors
+    co_op = by_title(roles, "Product Manager Spring Co-op 2027")
+    assert co_op.term == "unknown"
+    assert by_title(roles, "Strategy Intern - Winter 2027").company == "Umbrella"
+    assert not any("Co-op" in e or "Winter" in e for e in errors)
+
+
+def test_company_link_with_space_before_paren_is_plain_text():
+    text = (
+        "| Company | Job Title | Location | Work Model | Date Posted |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        "| **[Fortune Brands Innovations](https://www.fbin.com )** | "
+        "**[Product Management Intern](https://jobright.ai/jobs/info/fff1 )** | "
+        "Deerfield, IL, United States | Hybrid | Oct 15 |\n"
+    )
+    [role], errors = parse_readme(text, TODAY)
+    assert errors == []
+    assert role.company == "Fortune Brands Innovations"
+    assert role.link == "https://jobright.ai/jobs/info/fff1"
 
 
 def test_no_term_in_title_is_unknown(parsed):
@@ -60,7 +76,7 @@ def test_no_term_in_title_is_unknown(parsed):
 
 def test_malformed_row_is_reported_not_dropped(parsed):
     roles, errors = parsed
-    assert len(roles) == 4
+    assert len(roles) == 6  # 7 rows, 1 malformed
     assert len(errors) == 1 and "title is not a link" in errors[0]
 
 

@@ -84,3 +84,32 @@ def test_short_seniority_patterns_use_word_boundaries(title):
 def test_ops_pattern_uses_word_boundary():
     # "ops" inside "Workshops" must not count as Operations.
     assert is_relevant(make_role("Workshops Intern")) is None
+
+
+# --- category excludes (fall through to later rules) ---------------------------
+
+@pytest.mark.parametrize("title", [
+    "Systematic Strategy Intern",
+    "Multi-Strategy Analyst Intern",
+    "Trading Strategy Intern",
+    "Investment Strategy Intern",
+    "Investment Strategies Intern",
+    "Mission Operations Intern",
+    "Field Operations Intern",
+    "Power System Operations Intern",
+    "Flight Operations Intern",
+    "IT Operations Intern",
+])
+def test_category_excludes_drop_title(title):
+    assert is_relevant(make_role(title)) is None
+
+
+@pytest.mark.parametrize("title, expected", [
+    ("Corporate Strategy Intern", "Strategy"),
+    ("Product Operations Intern", "Operations"),
+    ("Audit Operations Intern", "Operations"),  # "it operations" needs a word boundary
+    ("Product Strategy Intern - Trading Platform", "PM"),  # PM rule matches first
+    ("Investment Strategy Intern, Products Team", "Product (other)"),  # not Strategy; falls through
+])
+def test_category_excludes_fall_through(title, expected):
+    assert is_relevant(make_role(title)) == expected

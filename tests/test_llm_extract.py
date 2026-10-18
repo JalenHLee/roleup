@@ -7,7 +7,7 @@ import anthropic
 import httpx2
 import pytest
 
-from src.llm_extract import build_prompt, extract_roles, number_links
+from src.llm_extract import build_prompt, extract_roles, number_links, strip_company_suffix
 from src.llm_extract import call_claude as real_call_claude  # captured before conftest stubs it
 
 EMAIL_DATE = date(2026, 10, 16)
@@ -42,7 +42,9 @@ GLOBEX = role("Globex", "Growth Intern", "Remote", "L2")
 
 
 def run(response, text=EMAIL_TEXT):
-    return extract_roles(text, "linkedin", EMAIL_DATE, fake_llm(response))
+    """Return (roles, errors); title fixes are tested separately."""
+    roles, errors, _ = extract_roles(text, "linkedin", EMAIL_DATE, fake_llm(response))
+    return roles, errors
 
 
 # --- number_links -------------------------------------------------------------
@@ -173,9 +175,10 @@ def test_fenced_json_is_accepted():
     assert errors == [] and len(roles) == 1
 
 
-def test_off_cycle_title_dropped_not_error():
+def test_off_cycle_title_kept_for_the_term_layer():
+    # The pipeline's term layer drops it, so the drop is counted.
     roles, errors = run({"roles": [role("Initech", "Product Intern - Spring 2027", "Austin, TX", "L3")]})
-    assert roles == [] and errors == []
+    assert errors == [] and roles[0].term == "unknown"
 
 
 # --- call_claude, with a fake Anthropic client (no network) ------------------
@@ -245,3 +248,28 @@ def test_call_claude_early_stop_raises(monkeypatch, stop_reason):
     monkeypatch.setattr(anthropic, "Anthropic", client)
     with pytest.raises(RuntimeError, match=stop_reason):
         real_call_claude("hello")
+
+
+# --- company-suffix guard -----------------------------------------------------
+
+
+@pytest.mark.parametrize("title, company, expected", [
+    ("2027 Summer Internship - Product Operations Q2", "Q2", "2027 Summer Internship - Product Operations"),
+    ("Product Manager Intern - Acme", "Acme", "Product Manager Intern"),
+    ("Product Manager Intern · ACME", "Acme", "Product Manager Intern"),
+    ("Product Manager Intern, Acme Robotics", "Acme Robotics", "Product Manager Intern"),
+    ("Product Manager Intern", "Acme", "Product Manager Intern"),  # nothing to strip
+    ("Acme", "Acme", "Acme"),  # nothing would be left
+    ("Product Intern - Acmeville", "Acme", "Product Intern - Acmeville"),  # whole name only
+    ("Growth Intern", "", "Growth Intern"),
+])
+def test_strip_company_suffix(title, company, expected):
+    assert strip_company_suffix(title, company) == expected
+
+
+def test_extract_roles_reports_title_fixes():
+    response = {"roles": [role(title="Product Manager Intern (Summer 2027) - Acme Robotics"), GLOBEX]}
+    roles, errors, fixes = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
+    assert errors == [] and roles[0].title == "Product Manager Intern (Summer 2027)"
+    assert fixes == [("Product Manager Intern (Summer 2027) - Acme Robotics",
+                      "Product Manager Intern (Summer 2027)")]

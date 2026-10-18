@@ -19,10 +19,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from src import llm_extract
-from src.dedupe import dedupe
-from src.filter import is_relevant
 from src.links import canonicalize
 from src.models import Role
+from src.pipeline import run_pipeline
 from src.sources import gmail_alerts, jobright, simplify
 from src.sources.gmail_alerts import EmailResult
 
@@ -123,46 +122,64 @@ def main() -> int:
     errors = {name: result.errors for name, result in results.items()}
     email_report = results["gmail"].email_report if "gmail" in results else None
 
-    for role in fetched:
-        role.category = is_relevant(role)
-    kept = [r for r in fetched if r.category]
-    merged = dedupe(kept)
+    result = run_pipeline(fetched)
 
-    for r in sorted(merged, key=lambda r: (r.category, r.company.lower())):
+    print(f"=== Digest ({len(result.digest)}) ===")
+    for r in sorted(result.digest, key=lambda r: (r.category, r.company.lower())):
         print(format_role(r))
+
+    print(f"\n=== Hidden (eligibility) ({len(result.hidden)}) ===")
+    for r in sorted(result.hidden, key=lambda r: (r.category, r.company.lower())):
+        print(f"{format_role(r)} | {r.eligibility_flag}")
 
     if email_report is not None:
         print(f"\n=== Alert emails ({len(email_report)}) ===")
         print("\n".join(format_email_report(email_report)) or "  (none in lookback window)")
 
+    print("\n=== Pipeline ===")
+    print(f"fetched: {len(result.fetched)} listings")
+    print(f"dropped by term: {len(result.dropped_term)} listings")
+    print(f"dropped by filter: {len(result.dropped_filter)} listings")
+    print(f"merged by dedupe: {len(result.kept)} listings -> {len(result.merged)} roles")
+    print(f"dropped by location: {len(result.dropped_location)} roles")
+    for r in result.dropped_location[:10]:
+        print(f"  - {r.company} | {r.title} | {r.location}")
+    print(f"hidden by eligibility: {len(result.hidden)} roles")
+    print(f"digest: {len(result.digest)} roles")
+
+    fixes = [fix for e in email_report or [] for fix in e.title_fixes]
+    print(f"\nTitle company-suffix fixes (alert emails): {len(fixes)}")
+    for before, after in fixes[:5]:
+        print(f"  - {before!r} -> {after!r}")
+
     print("\n=== Summary ===")
     # Keyed by each role's own source: the Gmail adapter yields linkedin, early-career-radar, ...
-    fetched_by_source = Counter(r.sources[0] for r in fetched)
-    kept_by_source = Counter(r.sources[0] for r in kept)
+    fetched_by_source = Counter(r.sources[0] for r in result.fetched)
+    kept_by_source = Counter(r.sources[0] for r in result.kept)
     for source, n in fetched_by_source.items():
-        print(f"{source}: {n} listings in target terms, {kept_by_source[source]} kept by filter")
-    print(f"Total after dedupe: {len(merged)}")
+        print(f"{source}: {n} listings fetched, {kept_by_source[source]} kept by term + filter")
 
-    overlap = [r for r in merged if len(r.sources) > 1]
+    # Roles that survived location (digest + hidden).
+    located = result.digest + result.hidden
+    overlap = [r for r in located if len(r.sources) > 1]
     print(f"\nOverlap (found in more than one source): {len(overlap)}")
     for r in overlap[:10]:
         print(f"  - {r.company} | {r.title} | {r.location} | {','.join(r.sources)}")
 
-    multi_link = [r for r in merged if len(r.links) > 1]
+    multi_link = [r for r in located if len(r.links) > 1]
     print(f"\nMerged roles with more than one link: {len(multi_link)}")
 
-    print("\nKept per term:")
-    for term, n in Counter(r.term for r in merged).most_common():
+    print("\nDigest per term:")
+    for term, n in Counter(r.term for r in result.digest).most_common():
         print(f"  {term}: {n}")
 
-    print("\nKept per category:")
-    for cat, n in Counter(r.category for r in merged).most_common():
+    print("\nDigest per category:")
+    for cat, n in Counter(r.category for r in result.digest).most_common():
         print(f"  {cat}: {n}")
 
     # Coverage check: roles Simplify itself calls "Product" that our filter dropped.
-    missed = [r for r in fetched
-              if "simplify" in r.sources and "product" in r.source_category.lower()
-              and not r.category]
+    missed = [r for r in result.dropped_filter
+              if "simplify" in r.sources and "product" in r.source_category.lower()]
     print(f"\nCoverage check: {len(missed)} Simplify 'Product' listings dropped by our filter")
     for r in missed[:15]:
         print(f"  - {r.company} | {r.title}")

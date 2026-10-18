@@ -22,3 +22,6 @@ class Role:
     # (different job IDs), so dedupe keeps them all rather than hiding one.
     links: list[str] = field(default_factory=list)
     role_id: str = ""  # set by dedupe.dedupe; the sheet's row key (Day 4)
+    # Set by eligibility.eligibility_flag: "" or "grad-only". Flagged roles stay in
+    # the data (and the sheet) but are hidden from the digest.
+    eligibility_flag: str = ""
