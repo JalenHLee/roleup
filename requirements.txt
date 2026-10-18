@@ -1,2 +1,4 @@
 requests>=2.31
 pytest>=8.0
+anthropic>=1.15
+beautifulsoup4>=4.12

@@ -1,0 +1,29 @@
+From: LinkedIn Job Alerts <jobalerts-noreply@linkedin.com>
+To: Test Student <student@example.com>
+Subject: 2 new jobs for "product manager intern"
+Date: Fri, 16 Oct 2026 14:05:00 +0000
+Message-ID: <fake-linkedin-001@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="BOUNDARY"
+
+--BOUNDARY
+Content-Type: text/plain; charset="utf-8"
+
+Plain-text version (should not be used when HTML exists).
+
+--BOUNDARY
+Content-Type: text/html; charset="utf-8"
+
+<html><head><style>.x{color:red}</style></head><body>
+<h1>Your job alert for product manager intern</h1>
+<table>
+  <tr><td><a href="https://www.linkedin.com/comm/jobs/view/1111111111/?trk=fake&amp;ref=alert">Product Manager Intern (Summer 2027)</a></td></tr>
+  <tr><td>Acme Robotics</td></tr><tr><td>New York, NY</td></tr>
+  <tr><td><a href="https://www.linkedin.com/comm/jobs/view/2222222222/?trk=fake">Growth Intern</a></td></tr>
+  <tr><td>Globex</td></tr><tr><td>Remote</td></tr>
+</table>
+<p><a href="https://www.linkedin.com/comm/jobs/alerts/settings">Manage alerts</a></p>
+<script>trackOpen();</script>
+</body></html>
+
+--BOUNDARY--

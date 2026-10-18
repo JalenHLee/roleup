@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.sources.jobright import _infer_date, _infer_term, parse_readme
+from src.sources.jobright import _infer_date, parse_readme
 
 FIXTURE = Path(__file__).parent / "fixtures" / "jobright_readme.md"
 TODAY = date(2026, 10, 17)
@@ -92,19 +92,3 @@ def test_infer_date_most_recent_past(text, today, expected):
 def test_infer_date_bad_text_raises():
     with pytest.raises(ValueError):
         _infer_date("yesterday", TODAY)
-
-
-@pytest.mark.parametrize("title, expected", [
-    ("Product Manager Intern (Summer 2027)", "Summer 2027"),
-    ("AI Product Manager Intern - 2027 Summer (MBA)", "Summer 2027"),
-    ("Product Management Intern (Fall 2026/Spring- Summer 2027)", "Summer 2027"),
-    ("Product Manager Intern", "unknown"),
-    ("Product Manager Intern 2027", "unknown"),
-    ("Product Manager Intern - Fall 2026", None),
-    ("Product Intern - Winter 2027", None),
-    ("Spring 2027 Product Owner Intern", None),
-    ("Product Manager Co-op", None),
-    ("Product Manager Coop 2027", None),
-])
-def test_infer_term(title, expected):
-    assert _infer_term(title) == expected

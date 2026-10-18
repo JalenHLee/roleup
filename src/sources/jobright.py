@@ -6,12 +6,9 @@ from datetime import date, datetime
 
 import requests
 
-from src.config import (
-    JOBRIGHT_OFF_CYCLE_PATTERNS,
-    JOBRIGHT_README_URL,
-    JOBRIGHT_TARGET_TERM_PATTERNS,
-)
+from src.config import JOBRIGHT_README_URL
 from src.models import Role
+from src.terms import infer_term
 
 log = logging.getLogger(__name__)
 
@@ -65,7 +62,7 @@ def parse_readme(text: str, today: date) -> tuple[list[Role], list[str]]:
                 company = _link_text(company_cell)
 
             title, link = _parse_title(title_cell)
-            term = _infer_term(title)
+            term = infer_term(title)
             if term is None:
                 continue  # off-cycle internship
 
@@ -110,16 +107,6 @@ def _parse_title(cell: str) -> tuple[str, str]:
     if not m:
         raise ValueError(f"title is not a link: {cell!r}")
     return m.group(1).strip(), m.group(2)
-
-
-def _infer_term(title: str) -> str | None:
-    """Return "Summer 2027", "unknown", or None for an off-cycle role to drop."""
-    t = title.lower()
-    if any(re.search(p, t) for p in JOBRIGHT_TARGET_TERM_PATTERNS):
-        return "Summer 2027"
-    if any(re.search(p, t) for p in JOBRIGHT_OFF_CYCLE_PATTERNS):
-        return None
-    return "unknown"
 
 
 def _infer_date(text: str, today: date) -> date:
