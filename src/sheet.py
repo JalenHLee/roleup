@@ -173,8 +173,18 @@ def plan_sync(
     return rows, counts
 
 
-def sync(spreadsheet, pipeline_result: PipelineResult, today: date) -> SyncCounts:
-    """Read the tracker, ensure the Roleup tab, and append new rows in one call."""
+def row_dicts(rows: list[list[str]]) -> list[dict[str, str]]:
+    """Rows as {header: value}, so the digest reads fields by column name."""
+    return [dict(zip(ROLEUP_HEADERS, row)) for row in rows]
+
+
+def sync(
+    spreadsheet, pipeline_result: PipelineResult, today: date,
+) -> tuple[list[list[str]], SyncCounts]:
+    """Read the tracker, ensure the Roleup tab, and append new rows in one call.
+
+    Returns (the rows actually appended, counts); the digest lists exactly those rows.
+    """
     applied_ids, applied_urls = read_tracker(spreadsheet)
     worksheet = ensure_roleup_tab(spreadsheet)
     rows, counts = plan_sync(pipeline_result, read_roleup_ids(worksheet),
@@ -184,4 +194,4 @@ def sync(spreadsheet, pipeline_result: PipelineResult, today: date) -> SyncCount
         # from an alert email is never evaluated as a formula.
         worksheet.append_rows(rows, value_input_option="RAW",
                               insert_data_option="INSERT_ROWS", table_range="A1")
-    return counts
+    return rows, counts

@@ -244,3 +244,19 @@ ROLEUP_ID_HEADER = "Role ID"
 
 # "First Seen" is the run date in this time zone (the 18:00 UTC run is 3:00 KST).
 RUN_TIMEZONE = "Asia/Seoul"
+
+# --- Digest email -----------------------------------------------------------------
+# Sent over Gmail SMTP with GMAIL_ADDRESS / GMAIL_APP_PASSWORD, to DIGEST_TO
+# (env var; defaults to GMAIL_ADDRESS). Addresses never live in code.
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = 465  # SSL
+SMTP_TIMEOUT_SECONDS = 30
+
+# Run label from the KST hour (RUN_TIMEZONE): before this hour = "Morning", else "Evening".
+RUN_LABEL_CUTOFF_HOUR = 12
+# Heartbeat: these runs always send, even with 0 new roles, so silence means broken.
+# Other runs send only when there are new roles or failures.
+HEARTBEAT_LABELS = {"Morning"}
+
+# Category order in the digest; categories not listed go last.
+DIGEST_CATEGORY_ORDER = ["PM", "PMM", "Growth", "Operations", "Strategy", "Product (other)"]
