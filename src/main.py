@@ -1,6 +1,8 @@
-"""Roleup entry point (Day 3b): fetch all sources, filter, dedupe, print.
+"""Roleup entry point: fetch all sources, filter, dedupe, print.
 
-The Gmail alert source runs only when its env vars are set.
+The Gmail alert source runs only when its env vars are set. Each source runs in
+isolation: one that crashes is reported and skipped, the others still run, and
+the process exits with code 1 at the end so the Actions run shows as failed.
 
 Output goes to public Actions logs, so roles are printed only through
 format_role (company, title, location, category, sources, canonical links),
@@ -11,7 +13,10 @@ Run with:  python -m src.main
 
 import logging
 import os
+import sys
 from collections import Counter, defaultdict
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from src import llm_extract
 from src.dedupe import dedupe
@@ -23,6 +28,68 @@ from src.sources.gmail_alerts import EmailResult
 
 # Env vars the Gmail alert source needs (read by gmail_alerts and llm_extract).
 GMAIL_ENV = ("GMAIL_ADDRESS", "GMAIL_APP_PASSWORD", "ANTHROPIC_API_KEY")
+FAILURE_MESSAGE_LIMIT = 300  # characters of an exception message to print
+
+
+@dataclass
+class SourceResult:
+    roles: list[Role]
+    errors: list[str]  # item-level parse errors
+    email_report: list[EmailResult] | None = None  # Gmail only
+
+
+def fetch_gmail() -> SourceResult:
+    roles, errors, report = gmail_alerts.parse_emails(
+        gmail_alerts.fetch_emails(), llm_extract.call_claude)
+    return SourceResult(roles, errors, report)
+
+
+def active_sources() -> dict[str, Callable[[], SourceResult]]:
+    """Return {name: fetch}; Gmail is included only when all its env vars are set."""
+    sources = {
+        "simplify": lambda: SourceResult(*simplify.fetch_roles()),
+        "jobright": lambda: SourceResult(*jobright.fetch_roles()),
+    }
+    missing = [name for name in GMAIL_ENV if not os.environ.get(name)]
+    if missing:
+        # Names only, never values.
+        print(f"Gmail source skipped: missing env vars: {', '.join(missing)}\n")
+    else:
+        sources["gmail"] = fetch_gmail
+    return sources
+
+
+def run_sources(
+    sources: dict[str, Callable[[], SourceResult]],
+) -> tuple[dict[str, SourceResult], dict[str, str]]:
+    """Run each source in isolation. Returns (results, failures by source name).
+
+    A source that raises is recorded as a failure and skipped; the rest still run.
+    """
+    results, failures = {}, {}
+    for name, fetch in sources.items():
+        try:
+            results[name] = fetch()
+        except Exception as e:  # isolate any source failure
+            failures[name] = describe_failure(e)
+            logging.getLogger(__name__).error("Source %s failed: %s", name, failures[name])
+    return results, failures
+
+
+def describe_failure(e: Exception) -> str:
+    """Exception type and message, with secret values masked and the length capped.
+
+    Messages come from libraries (IMAP, HTTP, API), not from email content, but
+    the masking is a second guard in case a library echoes a credential back.
+    """
+    message = str(e)
+    for name in GMAIL_ENV:
+        value = os.environ.get(name)
+        if value:
+            message = message.replace(value, f"<{name}>")
+    if len(message) > FAILURE_MESSAGE_LIMIT:
+        message = message[:FAILURE_MESSAGE_LIMIT] + "..."
+    return f"{type(e).__name__}: {message}"
 
 
 def format_role(role: Role) -> str:
@@ -47,28 +114,14 @@ def format_email_report(report: list[EmailResult]) -> list[str]:
     return lines
 
 
-def gmail_missing_env() -> list[str]:
-    return [name for name in GMAIL_ENV if not os.environ.get(name)]
-
-
-def main() -> None:
+def main() -> int:
+    """Run everything and print the report. Returns the exit code (1 if any source failed)."""
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 
-    fetched, errors = [], {}
-    for name, adapter in {"simplify": simplify, "jobright": jobright}.items():
-        roles, errors[name] = adapter.fetch_roles()
-        fetched.extend(roles)
-
-    email_report = None
-    missing = gmail_missing_env()
-    if missing:
-        # Names only, never values.
-        print(f"Gmail source skipped: missing env vars: {', '.join(missing)}\n")
-    else:
-        emails = gmail_alerts.fetch_emails()
-        roles, errors["gmail"], email_report = gmail_alerts.parse_emails(
-            emails, llm_extract.call_claude)
-        fetched.extend(roles)
+    results, failures = run_sources(active_sources())
+    fetched = [role for result in results.values() for role in result.roles]
+    errors = {name: result.errors for name, result in results.items()}
+    email_report = results["gmail"].email_report if "gmail" in results else None
 
     for role in fetched:
         role.category = is_relevant(role)
@@ -119,6 +172,14 @@ def main() -> None:
         for e in errs[:20]:
             print(f"  - {e}")
 
+    print(f"\n=== Source failures ({len(failures)}) ===")
+    for name, failure in failures.items():
+        print(f"  - {name}: {failure}")
+    if not failures:
+        print("  (none)")
+
+    return 1 if failures else 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
