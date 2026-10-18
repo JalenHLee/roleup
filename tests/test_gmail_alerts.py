@@ -270,6 +270,18 @@ def test_q2_company_appended_to_title_is_stripped_and_counted():
     assert result.title_fixes == [(Q2_TITLE + " Q2", Q2_TITLE)]
 
 
+def test_q2_empty_company_recovered_from_subtitle_and_counted():
+    # Live failure: company "" and "Q2" appended to the title.
+    llm = canned_llm({"3333333333": {"roles": [
+        {"company": "", "title": Q2_TITLE + " Q2", "location": "",
+         "subtitle": "Q2 · Austin, Texas, United States", "link_id": "L1"}]}})
+    [role], errors, [result] = parse_emails([parse_message(Q2_RAW)], llm)
+    assert errors == []
+    assert (role.company, role.title, role.location) == ("Q2", Q2_TITLE, "Austin, Texas, United States")
+    assert result.company_recoveries == 1
+    assert result.title_fixes == [(Q2_TITLE + " Q2", Q2_TITLE)]
+
+
 def test_prompt_tells_llm_not_to_append_company():
     llm = canned_llm({})
     llm_prompts = []

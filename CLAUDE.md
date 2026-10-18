@@ -7,7 +7,7 @@ Owner: Jalen (undergrad, graduating Dec 2028, recruiting for Summer 2027).
 Full PRD: see the "Roleup — PRD" doc (linked in README).
 
 ## Current phase
-**v1, Day 3 done + quality pass** — four sources, link IDs + canonical links, source failure isolation, and a layered pipeline (`src/pipeline.py`: term → filter → dedupe → location → eligibility) with per-layer counts. Eligibility flags are built (grad-only). Pending: verify the LinkedIn prompt guidance (company/title split) on the next live run. Next: Day 4 (Google Sheet sync).
+**v1, Day 3 done + quality pass** — four sources, link IDs + canonical links, source failure isolation, and a layered pipeline (`src/pipeline.py`: term → filter → dedupe → location → eligibility) with per-layer counts. Eligibility flags are built (grad-only). LLM schema has an optional verbatim `subtitle`; an empty company is recovered from LinkedIn's "Company · Location" line before validation, then the title suffix guard runs. Pending: confirm on the next live run that the Q2 case passes ("Company recovered from subtitle" and suffix-fix counts in the summary). Next: Day 4 (Google Sheet sync).
 (Update this section at the end of every session.)
 
 ## Stack
@@ -118,3 +118,4 @@ Then v1.1: fit score (disqualifiers first, full 0–100 range, evidence per scor
 | Eligibility: flag, don't delete. `grad-only` from title (MBA, Master's, Grad Intern, PhD) or Simplify degrees without Bachelor's; flagged roles stay in the data, hidden from the digest | The sheet keeps the full picture; the digest stays actionable |
 | role_id strips a trailing " - City, ST" / " - City, State" only for real US states, and a trailing " - X" whose words all appear earlier in the title; adds `holdings` suffix, `multiple teams` noise | Same posting decorated differently; "- Payments, Risk" isn't a location, "- Payments" adds a new word |
 | Company-suffix guard strips a company name the LLM appends to a title; fires are counted in the summary | Deterministic backstop for the prompt rule; the count shows if the prompt works |
+| AI selects, code copies/splits | The LLM identifies which text belongs to a role; deterministic code extracts exact values (link IDs, subtitle split: an empty company is filled from the text before the first " · ", and an empty location from the rest, before validation; recoveries counted in the summary) |
