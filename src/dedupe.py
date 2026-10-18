@@ -83,8 +83,13 @@ def normalize_title(title: str) -> str:
     return _collapse(text)
 
 
+def role_id_from(company: str, title: str) -> str:
+    """The role_id for a company + title. Also used for tracker rows (src/sheet.py)."""
+    return f"{normalize_company(company)}|{normalize_title(title)}"
+
+
 def make_role_id(role: Role) -> str:
-    return f"{normalize_company(role.company)}|{normalize_title(role.title)}"
+    return role_id_from(role.company, role.title)
 
 
 def _unique(items: list[str]) -> list[str]:

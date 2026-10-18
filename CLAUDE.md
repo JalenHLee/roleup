@@ -7,7 +7,7 @@ Owner: Jalen (undergrad, graduating Dec 2028, recruiting for Summer 2027).
 Full PRD: see the "Roleup — PRD" doc (linked in README).
 
 ## Current phase
-**v1, Day 3 done + quality pass** — four sources, link IDs + canonical links, source failure isolation, and a layered pipeline (`src/pipeline.py`: term → filter → dedupe → location → eligibility) with per-layer counts. Eligibility flags are built (grad-only). LLM schema has an optional verbatim `subtitle`; an empty company is recovered from LinkedIn's "Company · Location" line before validation, then the title suffix guard runs. Pending: confirm on the next live run that the Q2 case passes ("Company recovered from subtitle" and suffix-fix counts in the summary). Next: Day 4 (Google Sheet sync).
+**v1, Day 4 done** — Google Sheet sync (`src/sheet.py`): reads the "Job Tracker" tab read-only (every row = already applied, matched by role_id or canonical Job URL), appends new roles to the "Roleup" tab (created with headers, Status dropdown, frozen header if missing) in one batched, append-only call; digest roles as New, grad-only as Hidden. Runs after the pipeline, isolated like a source; prints counts only. Pending: first live `workflow_dispatch` run against the real sheet (check the tab is created and the counts look right; a second run should append 0). Next: Day 5 (digest email + nightly schedule).
 (Update this section at the end of every session.)
 
 ## Stack
@@ -119,3 +119,9 @@ Then v1.1: fit score (disqualifiers first, full 0–100 range, evidence per scor
 | role_id strips a trailing " - City, ST" / " - City, State" only for real US states, and a trailing " - X" whose words all appear earlier in the title; adds `holdings` suffix, `multiple teams` noise | Same posting decorated differently; "- Payments, Risk" isn't a location, "- Payments" adds a new word |
 | Company-suffix guard strips a company name the LLM appends to a title; fires are counted in the summary | Deterministic backstop for the prompt rule; the count shows if the prompt works |
 | AI selects, code copies/splits | The LLM identifies which text belongs to a role; deterministic code extracts exact values (link IDs, subtitle split: an empty company is filled from the text before the first " · ", and an empty location from the rest, before validation; recoveries counted in the summary) |
+| Google Sheet is the database: a "Roleup" tab keyed by `role_id`, read back each run to know what's already there | No separate state store; the tracker the user already uses stays the source of truth |
+| Roleup tab is append-only: existing rows are never modified or deleted; one batched `append_rows` per run, `RAW` input | User edits (Status, Notes) are never overwritten; RAW means a scraped title can't become a formula |
+| Tracker tab ("Job Tracker") is read-only; every row counts as applied regardless of Stage, matched by role_id (Company + Position, dedupe's normalization) or canonical Job URL | The user's own tracker is never at risk; anything they've touched shouldn't resurface |
+| Sheet sync logs print counts only (already in Roleup, already applied, appended New / Hidden); failure messages mask SHEET_ID and service-account key fields | Public Actions logs; tracker contents are personal |
+| "First Seen" = run date (KST, `RUN_TIMEZONE`), injected into `plan_sync`; separate "Posted" column = `date_posted` | First Seen is when Roleup added the row; post date is kept too; injection keeps `plan_sync` pure |
+| Sheet sync runs only when `GOOGLE_SERVICE_ACCOUNT_JSON` and `SHEET_ID` are set; it still runs if a source failed | Local/CI runs work without secrets; append-only makes a partial night harmless |

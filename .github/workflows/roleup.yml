@@ -1,6 +1,7 @@
 # Roleup run. Manual trigger only for now; the nightly schedule comes on Day 5.
-# Logs are public (public repo): src/main.py prints only canonical links and
-# hashed email IDs. Secrets are passed to the main step only, never to tests.
+# Logs are public (public repo): src/main.py prints only canonical links,
+# hashed email IDs, and sheet sync counts (never tracker or sheet contents).
+# Secrets are passed to the main step only, never to tests.
 name: roleup
 
 on:
@@ -33,3 +34,5 @@ jobs:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
