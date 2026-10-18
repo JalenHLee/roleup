@@ -99,6 +99,7 @@ def test_ops_pattern_uses_word_boundary():
     "Power System Operations Intern",
     "Flight Operations Intern",
     "IT Operations Intern",
+    "Trading Automation and Operations Intern",
 ])
 def test_category_excludes_drop_title(title):
     assert is_relevant(make_role(title)) is None

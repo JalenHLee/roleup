@@ -94,11 +94,11 @@ Then v1.1: fit score (disqualifiers first, full 0–100 range, evidence per scor
 | Keep Product Marketing roles (exact phrase only) | Product-adjacent, but generic marketing is out of scope |
 | Role carries `degrees` and Simplify's own category | `degrees` for eligibility (Day 4); category for the filter coverage check |
 | role_id excludes location | Same company + title is one application; location formats differ across sources |
-| Jobright term inferred from title; Fall 2026 / Winter / Spring / Co-op dropped unless Summer 2027 is also named | Jobright has no term column |
+| Jobright and alert-email terms are inferred from the title ("Summer 2027" or "unknown"); off-cycle titles are dropped later by the pipeline's term layer (see the off-cycle row below) | These sources have no term field |
 | role_id strips term phrases, bare years, intern words, country tokens (US/USA); keeps MBA/degree markers | Sources decorate the same title differently; degree-restricted roles are separate applications |
 | Merged role keeps every distinct link (`links`); primary `link` = Simplify's, else first seen | Two postings can share company + title; one link would silently hide an application |
 | `COMPANY_ALIASES` in config for company names that differ across sources | One-line fix per mismatch, no logic change |
-| LLM (Claude, `LLM_MODEL` in config) parses alert emails; code validates every item | Alert layouts vary and change; validation (required fields, http link, link must appear verbatim in the email) catches bad or hallucinated output |
+| LLM (Claude, `LLM_MODEL` in config) parses alert emails; code validates every item | Alert layouts vary and change; validation (required fields, `link_id` must map to a link the code numbered; see the Link IDs row) catches bad or hallucinated output |
 | Gmail via IMAP + app password, not the Gmail API | No OAuth consent screen or token refresh for a single-user bot |
 | Stateless 2-day email lookback (`EMAIL_LOOKBACK_DAYS`) | No "last seen" state to store; dedupe absorbs re-read emails, and one missed night is covered |
 | Lenny's Jobs cut from v1 | Alerts are paid, and few of its postings are internships |
@@ -116,5 +116,5 @@ Then v1.1: fit score (disqualifiers first, full 0–100 range, evidence per scor
 | `CATEGORY_EXCLUDES` per category; an excluded title falls through to later rules | "Systematic Strategy" isn't Strategy, but "Product Strategy … Trading" can still be PM |
 | US-only location rule: drop only if ALL locations are clearly non-US; unclear (Remote, SF, blank) is kept; runs after dedupe | Prefer recall; a merged role keeps every source's locations |
 | Eligibility: flag, don't delete. `grad-only` from title (MBA, Master's, Grad Intern, PhD) or Simplify degrees without Bachelor's; flagged roles stay in the data, hidden from the digest | The sheet keeps the full picture; the digest stays actionable |
-| role_id strips a trailing " - City, ST" / " - City, State" only for real US states; adds `holdings` suffix, `multiple teams` noise | Same posting decorated differently; "- Payments, Risk" isn't a location |
+| role_id strips a trailing " - City, ST" / " - City, State" only for real US states, and a trailing " - X" whose words all appear earlier in the title; adds `holdings` suffix, `multiple teams` noise | Same posting decorated differently; "- Payments, Risk" isn't a location, "- Payments" adds a new word |
 | Company-suffix guard strips a company name the LLM appends to a title; fires are counted in the summary | Deterministic backstop for the prompt rule; the count shows if the prompt works |

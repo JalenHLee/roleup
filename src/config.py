@@ -99,6 +99,7 @@ CATEGORY_EXCLUDES = {
         r"flight operations",
         r"security operations",
         r"\bit operations\b",
+        r"\btrading\b",  # trading-desk operations
     ],
 }
 
