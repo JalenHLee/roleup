@@ -113,3 +113,13 @@ def test_inputs_not_mutated():
     a, b = make_role(source="simplify"), make_role(source="jobright")
     dedupe([a, b])
     assert a.sources == ["simplify"] and a.role_id == ""
+
+
+def test_links_differing_only_by_tracking_merge_into_one():
+    [merged] = dedupe([
+        make_role(source="jobright",
+                  link="https://www.linkedin.com/comm/jobs/view/42/?trackingId=a&trk=eml"),
+        make_role(source="jobright", link="https://www.linkedin.com/jobs/view/42/?refId=b"),
+    ])
+    assert merged.links == ["https://www.linkedin.com/jobs/view/42/"]
+    assert merged.link == "https://www.linkedin.com/jobs/view/42/"

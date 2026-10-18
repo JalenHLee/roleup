@@ -14,6 +14,7 @@ from src.config import (
     ROLE_ID_TERM_PHRASES,
     ROLE_ID_TITLE_NOISE,
 )
+from src.links import canonicalize
 from src.models import Role
 
 PREFERRED_LINK_SOURCE = "simplify"  # Jobright links go through jobright.ai
@@ -65,7 +66,8 @@ def _merge(group: list[Role], role_id: str) -> Role:
     # Preferred-source roles first, so their link becomes the primary one.
     ordered = preferred + [r for r in group if PREFERRED_LINK_SOURCE not in r.sources]
 
-    links = _unique([link for r in ordered for link in (r.links or [r.link])])
+    # Compare canonical links, so one posting with different tracking params is one link.
+    links = _unique([canonicalize(link) for r in ordered for link in (r.links or [r.link])])
     locations = _unique([loc.strip() for r in group for loc in r.location.split(LOCATION_SEP)])
     known_terms = [r.term for r in group if r.term != "unknown"]
 

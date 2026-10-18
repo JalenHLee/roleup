@@ -7,10 +7,12 @@ from pathlib import Path
 import pytest
 
 from src.sources.gmail_alerts import (
+    EmailResult,
     fetch_emails,
     html_to_text,
     parse_emails,
     parse_message,
+    short_id,
     source_for_domain,
 )
 
@@ -31,17 +33,18 @@ def canned_llm(by_marker: dict[str, dict]):
     return llm
 
 
+# Link IDs follow the order links appear in each fixture email.
 LINKEDIN_JSON = {"roles": [
     {"company": "Acme Robotics", "title": "Product Manager Intern (Summer 2027)",
-     "location": "New York, NY",
-     "link": "https://www.linkedin.com/comm/jobs/view/1111111111/?trk=fake&ref=alert"},
-    {"company": "Globex", "title": "Growth Intern", "location": "Remote",
-     "link": "https://www.linkedin.com/comm/jobs/view/2222222222/?trk=fake"},
+     "location": "New York, NY", "link_id": "L1"},
+    {"company": "Globex", "title": "Growth Intern", "location": "Remote", "link_id": "L2"},
 ]}
 RADAR_JSON = {"roles": [
     {"company": "Initech", "title": "Associate Product Manager Intern, Summer 2027",
-     "location": "Austin, TX", "link": "https://jobs.example.com/initech/apm-intern-2027"},
+     "location": "Austin, TX", "link_id": "L1"},
 ]}
+LINKEDIN_ID = short_id("<fake-linkedin-001@example.com>")
+RADAR_ID = short_id("<fake-radar-001@example.com>")
 
 
 # --- HTML to text -------------------------------------------------------------
@@ -98,29 +101,42 @@ def test_source_for_domain(domain, expected):
 
 def test_parse_emails_both_senders():
     llm = canned_llm({"1111111111": LINKEDIN_JSON, "apm-intern-2027": RADAR_JSON})
-    roles, errors = parse_emails([parse_message(LINKEDIN_RAW), parse_message(RADAR_RAW)], llm)
+    roles, errors, report = parse_emails(
+        [parse_message(LINKEDIN_RAW), parse_message(RADAR_RAW)], llm)
     assert errors == []
-    assert [(r.company, r.sources) for r in roles] == [
-        ("Acme Robotics", ["linkedin"]),
-        ("Globex", ["linkedin"]),
-        ("Initech", ["early-career-radar"]),
+    assert [(r.company, r.sources, r.link) for r in roles] == [
+        ("Acme Robotics", ["linkedin"], "https://www.linkedin.com/jobs/view/1111111111/"),
+        ("Globex", ["linkedin"], "https://www.linkedin.com/jobs/view/2222222222/"),
+        ("Initech", ["early-career-radar"], "https://jobs.example.com/initech/apm-intern-2027"),
     ]
     assert roles[2].date_posted == date(2026, 10, 17)
+    assert report == [
+        EmailResult("linkedin.com", LINKEDIN_ID, "linkedin", roles=2, errors=0),
+        EmailResult("mail.earlycareerradar.com", RADAR_ID, "early-career-radar", roles=1, errors=0),
+    ]
+
+
+def test_short_id_is_stable_hash():
+    assert short_id("<fake-linkedin-001@example.com>") == LINKEDIN_ID
+    assert len(LINKEDIN_ID) == 8 and LINKEDIN_ID != RADAR_ID
+    assert "fake" not in LINKEDIN_ID
+    assert short_id("") == "????????"
 
 
 def test_unknown_sender_is_error_and_llm_not_called():
     msg = parse_message(LINKEDIN_RAW) | {"sender": "a.friend@example.com"}
     llm = canned_llm({})
-    roles, errors = parse_emails([msg], llm)
+    roles, errors, report = parse_emails([msg], llm)
     assert roles == [] and llm.calls == 0
-    assert len(errors) == 1 and "unknown sender" in errors[0]
-    assert "a.friend" not in errors[0]  # only the domain is reported
+    assert errors == [f"email #{LINKEDIN_ID} from example.com: unknown sender domain"]
+    assert report == [EmailResult("example.com", LINKEDIN_ID, None, roles=0, errors=1)]
 
 
 def test_missing_date_is_error():
     msg = parse_message(RADAR_RAW) | {"date": None}
-    roles, errors = parse_emails([msg], canned_llm({}))
+    roles, errors, report = parse_emails([msg], canned_llm({}))
     assert roles == [] and len(errors) == 1 and "Date" in errors[0]
+    assert report[0].errors == 1
 
 
 def test_llm_failure_is_error_for_that_email_only():
@@ -129,17 +145,23 @@ def test_llm_failure_is_error_for_that_email_only():
             raise RuntimeError("overloaded")
         return json.dumps(RADAR_JSON)
 
-    roles, errors = parse_emails([parse_message(LINKEDIN_RAW), parse_message(RADAR_RAW)], flaky_llm)
+    roles, errors, report = parse_emails(
+        [parse_message(LINKEDIN_RAW), parse_message(RADAR_RAW)], flaky_llm)
     assert [r.company for r in roles] == ["Initech"]
-    assert len(errors) == 1 and "LLM call failed" in errors[0] and "fake-linkedin-001" in errors[0]
+    assert len(errors) == 1 and "LLM call failed" in errors[0] and f"#{LINKEDIN_ID}" in errors[0]
+    assert [(r.roles, r.errors) for r in report] == [(0, 1), (1, 0)]
 
 
-def test_item_errors_are_prefixed_with_email_ref():
-    bad = {"roles": [{"company": "Acme", "title": "PM Intern", "location": "",
-                      "link": "https://made-up.example.com/job"}]}
-    _, errors = parse_emails([parse_message(RADAR_RAW)], canned_llm({"Initech": bad}))
-    assert errors == ["email <fake-radar-001@example.com> from mail.earlycareerradar.com: "
-                      "role #0 (PM Intern): link not found in email"]
+def test_item_errors_use_hashed_id_never_message_id():
+    bad = {"roles": [{"company": "Acme", "title": "PM Intern", "location": "", "link_id": "L9"},
+                     RADAR_JSON["roles"][0]]}
+    roles, errors, report = parse_emails([parse_message(RADAR_RAW)], canned_llm({"Initech": bad}))
+    assert [r.company for r in roles] == ["Initech"]  # other role kept
+    assert errors == [f"email #{RADAR_ID} from mail.earlycareerradar.com: "
+                      "role #0 (PM Intern): unknown link_id 'L9'"]
+    assert "fake-radar-001" not in errors[0]
+    assert report == [EmailResult("mail.earlycareerradar.com", RADAR_ID, "early-career-radar",
+                                  roles=1, errors=1)]
 
 
 # --- fetch_emails (fake IMAP) --------------------------------------------------

@@ -132,3 +132,11 @@ SENDER_SOURCES = {
     "linkedin.com": "linkedin",
     "earlycareerradar.com": "early-career-radar",
 }
+
+# --- Links -------------------------------------------------------------------
+# Query params stripped by links.canonicalize (matched case-insensitively).
+# Any param starting with "utm_" is stripped too.
+TRACKING_PARAMS = [
+    "trackingId", "refId", "lipi", "midToken", "midSig",
+    "trk", "trkEmail", "eid", "otpToken",
+]
