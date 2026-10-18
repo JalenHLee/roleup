@@ -147,6 +147,9 @@ def main() -> int:
     print(f"hidden by eligibility: {len(result.hidden)} roles")
     print(f"digest: {len(result.digest)} roles")
 
+    recoveries = sum(e.company_recoveries for e in email_report or [])
+    print(f"\nCompany recovered from subtitle (alert emails): {recoveries}")
+
     fixes = [fix for e in email_report or [] for fix in e.title_fixes]
     print(f"\nTitle company-suffix fixes (alert emails): {len(fixes)}")
     for before, after in fixes[:5]:

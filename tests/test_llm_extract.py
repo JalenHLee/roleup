@@ -43,7 +43,7 @@ GLOBEX = role("Globex", "Growth Intern", "Remote", "L2")
 
 def run(response, text=EMAIL_TEXT):
     """Return (roles, errors); title fixes are tested separately."""
-    roles, errors, _ = extract_roles(text, "linkedin", EMAIL_DATE, fake_llm(response))
+    roles, errors, _, _ = extract_roles(text, "linkedin", EMAIL_DATE, fake_llm(response))
     return roles, errors
 
 
@@ -269,7 +269,50 @@ def test_strip_company_suffix(title, company, expected):
 
 def test_extract_roles_reports_title_fixes():
     response = {"roles": [role(title="Product Manager Intern (Summer 2027) - Acme Robotics"), GLOBEX]}
-    roles, errors, fixes = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
+    roles, errors, fixes, _ = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
     assert errors == [] and roles[0].title == "Product Manager Intern (Summer 2027)"
     assert fixes == [("Product Manager Intern (Summer 2027) - Acme Robotics",
                       "Product Manager Intern (Summer 2027)")]
+
+
+# --- company recovered from subtitle ------------------------------------------
+
+Q2_TITLE = "2027 Summer Internship - Product Operations"
+
+
+def test_empty_company_recovered_from_subtitle_then_suffix_stripped():
+    response = {"roles": [{"company": "", "title": Q2_TITLE + " Q2", "location": "",
+                           "subtitle": "Q2 · Austin, Texas, United States", "link_id": "L1"}]}
+    roles, errors, fixes, recoveries = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
+    assert errors == []
+    [r] = roles
+    assert (r.company, r.title, r.location) == ("Q2", Q2_TITLE, "Austin, Texas, United States")
+    assert recoveries == 1 and fixes == [(Q2_TITLE + " Q2", Q2_TITLE)]
+
+
+def test_subtitle_recovery_keeps_existing_location():
+    response = {"roles": [{**role(company=""), "subtitle": "Acme Robotics · Somewhere Else"}]}
+    roles, errors, _, recoveries = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
+    assert errors == [] and recoveries == 1
+    assert (roles[0].company, roles[0].location) == ("Acme Robotics", "New York, NY")
+
+
+def test_subtitle_ignored_when_company_present():
+    response = {"roles": [{**role(), "subtitle": "Other Co · Remote"}]}
+    roles, errors, _, recoveries = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
+    assert errors == [] and recoveries == 0 and roles[0].company == "Acme Robotics"
+
+
+@pytest.mark.parametrize("extra", [{}, {"subtitle": ""}, {"subtitle": "Austin, TX"},
+                                   {"subtitle": " · Austin, TX"}, {"subtitle": None}])
+def test_empty_company_without_usable_subtitle_is_still_an_error(extra):
+    response = {"roles": [{**role(company=""), **extra}, GLOBEX]}
+    roles, errors, _, recoveries = extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, fake_llm(response))
+    assert recoveries == 0 and [r.company for r in roles] == ["Globex"]
+    assert len(errors) == 1 and "missing company" in errors[0]
+
+
+def test_prompt_asks_for_verbatim_subtitle():
+    llm = fake_llm({"roles": []})
+    extract_roles(EMAIL_TEXT, "linkedin", EMAIL_DATE, llm)
+    assert '"subtitle"' in llm.prompts[0] and "verbatim" in llm.prompts[0]

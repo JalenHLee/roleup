@@ -43,6 +43,8 @@ class EmailResult:
     errors: int
     # (before, after) titles where the company-suffix guard fired. Job titles only.
     title_fixes: list[tuple[str, str]] = field(default_factory=list)
+    # Roles whose empty company was filled from the "Company · Location" subtitle.
+    company_recoveries: int = 0
 
 
 def short_id(message_id: str) -> str:
@@ -144,13 +146,14 @@ def parse_emails(
         source = source_for_domain(domain)
 
         fixes: list[tuple[str, str]] = []
+        recoveries = 0
         if source is None:
             found, email_errors = [], ["unknown sender domain"]
         elif msg.get("date") is None:
             found, email_errors = [], ["missing or bad Date header"]
         else:
             try:
-                found, email_errors, fixes = extract_roles(msg["text"], source, msg["date"], llm)
+                found, email_errors, fixes, recoveries = extract_roles(msg["text"], source, msg["date"], llm)
             except Exception as e:  # any LLM/API failure is reported for this email only
                 found, email_errors = [], [f"LLM call failed: {type(e).__name__}: {e}"]
 
@@ -158,7 +161,7 @@ def parse_emails(
         for err in email_errors:
             log.warning("Failed to parse %s: %s", ref, err)
             errors.append(f"{ref}: {err}")
-        report.append(EmailResult(domain, sid, source, len(found), len(email_errors), fixes))
+        report.append(EmailResult(domain, sid, source, len(found), len(email_errors), fixes, recoveries))
 
     return roles, errors, report
 
