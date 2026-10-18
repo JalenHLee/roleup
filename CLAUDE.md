@@ -7,7 +7,7 @@ Owner: Jalen (undergrad, graduating Dec 2028, recruiting for Summer 2027).
 Full PRD: see the "Roleup — PRD" doc (linked in README).
 
 ## Current phase
-**v1, Day 3b code done** — all four sources wired up, link IDs + link canonicalization, public-safe output, per-email report, manual `roleup` workflow. Pending: add the three repo secrets and trigger the first live run (Actions → roleup → Run workflow), then tune the prompt from its per-email report. Next: Day 4 (Google Sheet sync + eligibility flags).
+**v1, Day 3b code done** — all four sources wired up, link IDs + link canonicalization, public-safe output, per-email report, manual `roleup` workflow. Sources now fail independently (first live run hit an IMAP auth failure that blocked the others). Pending: fix the Gmail app-password secret, re-run, then tune the prompt from the per-email report. Next: Day 4 (Google Sheet sync + eligibility flags).
 (Update this section at the end of every session.)
 
 ## Stack
@@ -108,3 +108,4 @@ Then v1.1: fit score (disqualifiers first, full 0–100 range, evidence per scor
 | `links.canonicalize` runs before a link is stored, deduped, or printed (LinkedIn → `/jobs/view/<id>/`; `utm_*` + `TRACKING_PARAMS` stripped) | One URL per posting for dedupe; tracking tokens never reach public logs or the API prompt |
 | `main.py` prints roles only via `format_role` (category, company, title, location, sources, canonical links) | One choke point for what reaches public logs, covered by a test |
 | Workflow is `workflow_dispatch` only until Day 5; secrets go to the main step only | Watch the first live runs by hand before scheduling; tests never see secrets |
+| Each source runs in its own try/except; a failure is printed under "Source failures" (type + message, secrets masked) and the run exits 1 after printing everything | One broken source shouldn't block the digest; the Actions run still shows red so the failure isn't missed |
