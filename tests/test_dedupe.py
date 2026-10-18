@@ -4,7 +4,8 @@ from datetime import date
 
 import pytest
 
-from src.dedupe import dedupe, make_role_id, normalize_company, normalize_title, strip_redundant_suffix, strip_title_location
+from src.dedupe import (dedupe, make_role_id, normalize_company, normalize_title, role_id_from,
+                        strip_redundant_suffix, strip_title_location)
 from src.models import Role
 
 
@@ -193,3 +194,27 @@ def test_redundant_suffix_merges_q2_titles():
 ])
 def test_strip_redundant_suffix(title, expected):
     assert strip_redundant_suffix(title) == expected
+
+
+# --- trailing location parenthetical (role_id only) ---------------------------
+
+def test_icf_location_parentheticals_share_a_role_id():
+    # Live failure: the same ICF posting, with its location list rewritten between alerts.
+    a = role_id_from("ICF", "Product Management Intern (New York, NY; Boston, MA)")
+    b = role_id_from("ICF", "Product Management Intern (New York; New Jersey; Boston)")
+    assert a == b == role_id_from("ICF", "Product Management Intern")
+
+
+@pytest.mark.parametrize("title", [
+    "Product Intern (Payments)",
+    "PM Intern (MBA)",
+    "Product Intern (MBA; New York, NY)",  # degree marker: a separate role
+    "Product Intern (In Person)",  # "In" isn't Indiana
+])
+def test_non_location_parentheticals_are_kept(title):
+    assert role_id_from("Acme", title) != role_id_from("Acme", title.rsplit(" (", 1)[0])
+
+
+def test_state_name_parenthetical_is_stripped():
+    assert (role_id_from("Acme", "Growth Intern (Texas)")
+            == role_id_from("Acme", "Growth Intern"))

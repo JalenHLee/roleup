@@ -27,6 +27,10 @@ FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
 URL_RE = re.compile(r"https?://[^\s<>()\[\]\"']+")
 TRAILING_PUNCTUATION = ".,;:!?"
 SUBTITLE_SEPARATOR = " · "  # LinkedIn's "Company · Location" line
+# A company containing these words is really (part of) a title.
+COMPANY_TITLE_WORDS_RE = re.compile(r"\binterns?(hips?)?\b", re.IGNORECASE)
+# A leading country token the LLM pulled in from a title tail ("U.S. Atlassian").
+COMPANY_COUNTRY_PREFIX_RE = re.compile(r"^(?:u\.s\.a?\.?|usa?)\s+", re.IGNORECASE)
 
 PROMPT_TEMPLATE = """\
 Below is a job-alert email. List every internship posting it contains.
@@ -81,14 +85,16 @@ def build_prompt(marked_text: str, links: dict[str, str]) -> str:
 
 def extract_roles(
     email_text: str, source: str, email_date: date, llm: LLM
-) -> tuple[list[Role], list[str], list[tuple[str, str]], int]:
+) -> tuple[list[Role], list[str], list[tuple[str, str]], int, int]:
     """Ask the LLM for the email's roles.
 
-    Returns (valid roles, errors, title_fixes, company_recoveries).
+    Returns (valid roles, errors, title_fixes, company_recoveries, company_fixes).
     `title_fixes` lists (before, after) for each title where the company-suffix
     guard stripped a company name the LLM appended (e.g. "... Operations Q2").
     `company_recoveries` counts items whose empty company was filled from the
     subtitle line before validation (see recover_from_subtitle).
+    `company_fixes` counts items whose company failed a sanity check (see
+    sanitize_company); those run first, so a blanked company can still be recovered.
 
     A non-JSON response is one error for the whole email. Each invalid item is
     its own error; the email's valid items are still kept. Off-cycle titles are kept
@@ -99,17 +105,22 @@ def extract_roles(
     try:
         data = json.loads(_strip_fence(llm(build_prompt(marked, links))))
     except json.JSONDecodeError as e:
-        return [], [f"LLM response is not JSON: {e}"], [], 0
+        return [], [f"LLM response is not JSON: {e}"], [], 0, 0
     items = data.get("roles") if isinstance(data, dict) else None
     if not isinstance(items, list):
-        return [], ['LLM response has no "roles" list'], [], 0
+        return [], ['LLM response has no "roles" list'], [], 0, 0
 
     roles: list[Role] = []
     errors: list[str] = []
     title_fixes: list[tuple[str, str]] = []
-    recoveries = 0
+    recoveries = company_fixes = 0
     for i, item in enumerate(items):
-        # Before validation, so an empty company can still be filled in from the subtitle.
+        # Sanity checks, then subtitle recovery, both before validation, so a bad
+        # company is blanked first and can still be filled in from the subtitle.
+        sane = sanitize_company(item, email_text)
+        if sane is not item:
+            item = sane
+            company_fixes += 1
         recovered = recover_from_subtitle(item)
         if recovered is not item:
             item = recovered
@@ -140,7 +151,30 @@ def extract_roles(
             term=term,
             links=[link],
         ))
-    return roles, errors, title_fixes, recoveries
+    return roles, errors, title_fixes, recoveries, company_fixes
+
+
+def sanitize_company(item, email_text: str):
+    """Fix a company the LLM got wrong. Returns a new dict if changed, else `item` itself.
+
+    - A company equal to the title, or containing "intern"/"internship", is really
+      title text: it becomes "" (so recover_from_subtitle can fill it).
+    - A leading "U.S." / "US" / "USA" is stripped, but only when the full company
+      doesn't appear verbatim in the email, so a real "US Foods" is kept.
+    """
+    if not isinstance(item, dict):
+        return item
+    company, title = item.get("company"), item.get("title")
+    if not isinstance(company, str) or not company.strip():
+        return item
+    name = company.strip()
+    if (isinstance(title, str) and name.casefold() == title.strip().casefold()) \
+            or COMPANY_TITLE_WORDS_RE.search(name):
+        return dict(item, company="")
+    m = COMPANY_COUNTRY_PREFIX_RE.match(name)
+    if m and name[m.end():].strip() and name.casefold() not in email_text.casefold():
+        return dict(item, company=name[m.end():].strip())
+    return item
 
 
 def recover_from_subtitle(item):

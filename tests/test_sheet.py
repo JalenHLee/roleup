@@ -14,7 +14,8 @@ from src.config import ROLEUP_HEADERS, ROLEUP_STATUSES, ROLEUP_TAB, TRACKER_TAB
 from src.main import SourceResult
 from src.models import Role
 from src.pipeline import run_pipeline
-from src.sheet import ensure_roleup_tab, plan_sync, read_tracker, sync
+from src.sheet import (RoleupIndex, ensure_roleup_tab, ordered_row, plan_sync, read_roleup,
+                       read_tracker, sync)
 
 TODAY = date(2026, 10, 19)
 TRACKER_HEADERS = ["Apply Date", "Company", "Stage", "Position", "LinkedIn Referrals",
@@ -116,7 +117,9 @@ def test_creates_roleup_tab_with_headers_dropdown_and_frozen_row():
 
     assert ss.added == [ROLEUP_TAB]
     assert ws.values == [ROLEUP_HEADERS]
-    assert ROLEUP_HEADERS[:3] == ["Status", "First Seen", "Posted"] and len(ROLEUP_HEADERS) == 14
+    assert ROLEUP_HEADERS == ["Status", "Company", "Title", "Category", "Location", "Posted",
+                              "Link", "Notes", "First Seen", "Term", "Sources", "Other Links",
+                              "Eligibility", "Role ID"]
 
     validation = next(r["setDataValidation"] for r in ss.requests if "setDataValidation" in r)
     status_col = ROLEUP_HEADERS.index("Status")
@@ -210,9 +213,9 @@ def test_new_row_fields():
 
 
 def test_first_seen_is_the_injected_today():
-    rows, _ = plan_sync(pipeline(ACME), set(), set(), set(), today=date(2027, 1, 5))
-    assert rows[0][ROLEUP_HEADERS.index("First Seen")] == "2027-01-05"
-    assert rows[0][ROLEUP_HEADERS.index("Posted")] == "2026-10-01"
+    records, _ = plan_sync(pipeline(ACME), RoleupIndex(), set(), set(), today=date(2027, 1, 5))
+    assert records[0]["First Seen"] == "2027-01-05"
+    assert records[0]["Posted"] == "2026-10-01"
 
 
 def test_grad_only_role_appended_as_hidden():
@@ -242,9 +245,9 @@ def test_existing_roleup_rows_not_duplicated_and_user_edits_preserved():
 
 def test_one_append_call_per_run_and_returns_the_appended_rows():
     ss = FakeSpreadsheet([])
-    rows, _ = sync(ss, pipeline(ACME, GLOBEX, INITECH_MBA), TODAY)
+    records, _ = sync(ss, pipeline(ACME, GLOBEX, INITECH_MBA), TODAY)
     assert len(ss.roleup.appends) == 1 and len(ss.roleup.appends[0]) == 3
-    assert rows == ss.roleup.appends[0]
+    assert [ordered_row(r, ROLEUP_HEADERS) for r in records] == ss.roleup.appends[0]
 
 
 def test_sync_returns_no_rows_when_nothing_appended():
@@ -255,11 +258,11 @@ def test_sync_returns_no_rows_when_nothing_appended():
 
 def test_plan_sync_is_idempotent():
     result = pipeline(ACME, GLOBEX, INITECH_MBA)
-    rows, first = plan_sync(result, set(), set(), set(), TODAY)
+    rows, first = plan_sync(result, RoleupIndex(), set(), set(), TODAY)
     assert len(rows) == 3
 
-    ids = {row[ROLEUP_HEADERS.index("Role ID")] for row in rows}
-    rows2, second = plan_sync(result, ids, set(), set(), TODAY)
+    ids = {r["Role ID"] for r in rows}
+    rows2, second = plan_sync(result, RoleupIndex(ids=ids), set(), set(), TODAY)
     assert rows2 == []
     assert (second.already_in_roleup, second.appended_new, second.appended_hidden) == (3, 0, 0)
 
@@ -301,6 +304,7 @@ def test_main_prints_counts_and_no_tracker_content(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert ("=== Sheet sync ===\n"
             "already in Roleup tab: 0\n"
+            "already in Roleup (by link): 0\n"
             "skipped as already applied (tracker): 1\n"
             "appended New: 1\n"
             "appended Hidden: 1\n") in out
@@ -329,3 +333,111 @@ def test_main_skips_sheet_without_env(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Sheet sync skipped: missing env vars: GOOGLE_SERVICE_ACCOUNT_JSON, SHEET_ID" in out
     assert "=== Sheet sync ===" not in out
+
+
+# --- new-tab layout -----------------------------------------------------------------
+
+def test_new_tab_hides_the_last_six_columns():
+    ss = FakeSpreadsheet([])
+    ensure_roleup_tab(ss)
+    hidden = [r["updateDimensionProperties"] for r in ss.requests if "updateDimensionProperties" in r]
+    assert all(h["properties"] == {"hiddenByUser": True} and h["range"]["dimension"] == "COLUMNS"
+               for h in hidden)
+    assert [h["range"]["startIndex"] for h in hidden] == list(range(8, 14))  # columns I-N
+    assert [ROLEUP_HEADERS[h["range"]["startIndex"]] for h in hidden] == [
+        "First Seen", "Term", "Sources", "Other Links", "Eligibility", "Role ID"]
+
+
+# --- identity by link -----------------------------------------------------------------
+
+LINKEDIN = "https://www.linkedin.com/jobs/view/4000000042/"
+
+
+def existing_row(headers=ROLEUP_HEADERS, **fields):
+    return [fields.get(h.replace(" ", "_"), "") for h in headers]
+
+
+def test_role_with_a_link_already_in_roleup_is_skipped_by_link():
+    # Live failure: the AI wrote "U.S. Atlassian" this run, "Atlassian" last run.
+    ss = FakeSpreadsheet([], roleup_rows=[ROLEUP_HEADERS, existing_row(
+        Status="Applied", Company="Atlassian", Title="Product Manager Intern",
+        Link=LINKEDIN, Role_ID="atlassian|product manager")])
+    again = role("U.S. Atlassian", "Product Manager Intern, U.S.",
+                 LINKEDIN + "?trackingId=x", source="linkedin")
+    records, counts = sync(ss, pipeline(again), TODAY)
+    assert records == [] and ss.roleup.appends == []
+    assert (counts.already_in_roleup, counts.already_in_roleup_by_link) == (0, 1)
+
+
+def test_link_in_other_links_column_counts_too():
+    ss = FakeSpreadsheet([], roleup_rows=[ROLEUP_HEADERS, existing_row(
+        Company="ICF", Title="Product Intern (New York, NY; Boston, MA)",
+        Link="https://icf.example.com/jobs/1",
+        Other_Links=f"https://jobright.example.com/a, {LINKEDIN}", Role_ID="old|id")])
+    moved = role("ICF Inc", "Product Intern - Remote Friendly", LINKEDIN, source="linkedin")
+    _, counts = sync(ss, pipeline(moved), TODAY)
+    assert counts.already_in_roleup_by_link == 1 and ss.roleup.appends == []
+
+
+def test_existing_rows_role_id_is_recomputed_from_company_and_title():
+    # A stored Role ID from an older normalization still matches via Company + Title.
+    ss = FakeSpreadsheet([], roleup_rows=[ROLEUP_HEADERS, existing_row(
+        Company="ICF", Title="Product Intern (New York, NY; Boston, MA)",
+        Link="https://icf.example.com/jobs/1", Role_ID="icf|product new york ny boston ma")])
+    rewritten = role("ICF", "Product Intern (New York; New Jersey; Boston)",
+                     "https://www.linkedin.com/jobs/view/4000000077/", source="linkedin")
+    _, counts = sync(ss, pipeline(rewritten), TODAY)
+    assert counts.already_in_roleup == 1 and ss.roleup.appends == []
+
+
+def test_read_roleup_index():
+    index = read_roleup([ROLEUP_HEADERS, existing_row(
+        Company="Acme", Title="PM Intern", Link="https://a.example.com/1?utm_source=x",
+        Other_Links="https://b.example.com/2, https://c.example.com/3", Role_ID="acme|pm")])
+    assert index.ids == {"acme|pm"}
+    assert index.links == {"https://a.example.com/1", "https://b.example.com/2",
+                           "https://c.example.com/3"}
+
+
+def test_same_link_twice_in_one_batch_appends_once():
+    a = role("Acme", "Product Manager Intern", LINKEDIN, source="linkedin")
+    b = role("Acme Robotics Co", "APM Intern", LINKEDIN, source="linkedin")
+    records, counts = plan_sync(pipeline(a, b), RoleupIndex(), set(), set(), TODAY)
+    assert len(records) == 1 and counts.already_in_roleup_by_link == 1
+
+
+# --- write by header name ---------------------------------------------------------------
+
+def test_reordered_headers_and_user_column():
+    headers = ["Title", "My Rank", "Company", "Status", "Link", "Role ID"]  # user layout
+    ss = FakeSpreadsheet([], roleup_rows=[headers])
+    sync(ss, pipeline(ACME), TODAY)
+    [row] = ss.roleup.appends[0]
+    assert row == ["Product Manager Intern", "", "Acme Inc", "New",
+                   "https://acme.example.com/jobs/1", "acme|product manager"]
+
+
+def test_repeated_header_is_filled_once():
+    assert ordered_row({"Title": "T", "Company": "C"}, ["Title", "Company", "Title"]) == ["T", "C", ""]
+
+
+@pytest.mark.parametrize("missing", ["Status", "Company", "Title", "Link", "Role ID"])
+def test_missing_required_header_fails_before_any_write(missing):
+    ss = FakeSpreadsheet([], roleup_rows=[[h for h in ROLEUP_HEADERS if h != missing]])
+    with pytest.raises(ValueError, match=missing):
+        sync(ss, pipeline(ACME), TODAY)
+    assert ss.roleup.appends == []
+
+
+def test_existing_tab_is_never_restyled_or_reheaded():
+    user_headers = ["Status", "Company", "Title", "Link", "Role ID", "Notes"]
+    ss = FakeSpreadsheet([], roleup_rows=[user_headers])
+    sync(ss, pipeline(ACME, GLOBEX, INITECH_MBA), TODAY)
+    assert ss.requests == [] and ss.added == []  # no validation / formatting / hiding
+    assert ss.roleup.values[0] == user_headers
+
+
+def test_bot_only_writes_new_or_hidden_status():
+    ss = FakeSpreadsheet([])
+    records, _ = sync(ss, pipeline(ACME, GLOBEX, INITECH_MBA), TODAY)
+    assert {r["Status"] for r in records} == {"New", "Hidden"}

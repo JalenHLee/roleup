@@ -9,6 +9,7 @@ import re
 
 from src.config import (
     COMPANY_ALIASES,
+    GRAD_ONLY_TITLE_PATTERNS,
     ROLE_ID_COMPANY_SUFFIXES,
     ROLE_ID_INTERN_WORDS,
     ROLE_ID_TERM_PHRASES,
@@ -25,6 +26,13 @@ TITLE_LOCATION_SUFFIX_RE = re.compile(r"\s+[-–—]\s+[^-–—,]+,\s*([A-Za-z 
 _STATE_NAMES = {name.lower() for name in US_STATES.values()}
 # A trailing " - X" suffix (hyphen or en/em dash), X without further dashes.
 TITLE_DASH_SUFFIX_RE = re.compile(r"\s+[-–—]\s+([^-–—]+?)\s*$")
+# A trailing "(...)" with no nested parentheses.
+TITLE_PARENS_SUFFIX_RE = re.compile(r"\s*\(([^()]*)\)\s*$")
+# Uppercase two-letter state codes, matched in the original (not lowercased) text,
+# so "(In Person)" or "(or remote)" isn't read as Indiana / Oregon.
+_STATE_CODE_RE = re.compile(r"\b(?:" + "|".join(US_STATES) + r")\b")
+_STATE_NAME_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(n) for n in US_STATES.values()) + r")\b", re.IGNORECASE)
 
 
 def _remove_words(text: str, phrases: list[str]) -> str:
@@ -58,6 +66,24 @@ def strip_title_location(title: str) -> str:
     return title
 
 
+def strip_title_location_parens(title: str) -> str:
+    """Drop a trailing "(...)" that lists locations: it has a US state code/name or "; ".
+
+    "Product Intern (New York, NY; Boston, MA)" and "Product Intern (New York; New Jersey;
+    Boston)" both become "Product Intern"; "Product Intern (Payments)" is left alone, and
+    so is anything with a degree marker ("(MBA; New York)"): those are separate roles.
+    """
+    m = TITLE_PARENS_SUFFIX_RE.search(title)
+    if not m:
+        return title
+    inner = m.group(1)
+    if any(re.search(p, inner.lower()) for p in GRAD_ONLY_TITLE_PATTERNS):
+        return title
+    if "; " in inner or _STATE_CODE_RE.search(inner) or _STATE_NAME_RE.search(inner):
+        return title[:m.start()]
+    return title
+
+
 def strip_redundant_suffix(title: str) -> str:
     """Drop a trailing " - X" when every word of X already appears earlier in the title.
 
@@ -75,7 +101,7 @@ def strip_redundant_suffix(title: str) -> str:
 
 
 def normalize_title(title: str) -> str:
-    text = _clean(strip_redundant_suffix(strip_title_location(title)))
+    text = _clean(strip_redundant_suffix(strip_title_location(strip_title_location_parens(title))))
     text = _remove_words(text, ROLE_ID_TERM_PHRASES)
     text = re.sub(r"\b20\d\d\b", " ", text)  # bare years, e.g. "Intern 2027"
     text = _remove_words(text, ROLE_ID_INTERN_WORDS)
